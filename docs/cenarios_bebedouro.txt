@@ -1,0 +1,347 @@
+CENÁRIOS E CASOS EXTREMOS - BEBEDOURO AUTOMÁTICO PARA GATOS
+Laboratório de Sistemas I
+
+Este documento descreve em palavras como o sistema deve se comportar em
+situações normais, irregulares e de falha. A lógica completa está na tabela
+de condições; aqui a ideia é facilitar o entendimento.
+
+==================================================
+ESTADOS DA TROCA DE ÁGUA
+==================================================
+
+- Normal: não há troca de água pendente. A circulação e a reposição de nível
+  funcionam normalmente.
+- Aguardando: a água foi considerada ruim, mas o descarte ainda não começou
+  (esperando condições adequadas: nenhum gato por perto, espaço no
+  reservatório de água suja etc.).
+- Descartando: a bomba de descarte está retirando a água suja do bebedouro.
+- Reabastecendo: o descarte terminou e a bomba de reposição está enchendo o
+  bebedouro com água limpa.
+
+Vocabulário:
+- Troca de água = processo inteiro (aguardando, descartando e reabastecendo).
+- Descarte = só a etapa de esvaziar o bebedouro.
+- Reabastecimento = só a etapa de encher com água limpa.
+
+DECISÕES E CONSIDERAÇÕES DO GRUPO
+
+Funcionamento
+- Não é aceitável circular água enquanto o bebedouro está sendo enchido. A
+  bomba de reposição e a de circulação ficam travadas entre si.
+- Nenhuma bomba liga com outra em funcionamento: as três bombas são
+  travadas entre si nas condições de partida.
+- A circulação só ocorre no estado normal. Em aguardando, descartando e
+  reabastecendo ela fica bloqueada de propósito: não faz sentido circular
+  água ruim, e durante a troca o gato espera.
+- Se um gato chega durante o descarte, ele espera o processo terminar
+  (descarta, repõe e só então a circulação volta). Isso vale se houver água
+  no reservatório de água limpa.
+- Se a água for considerada ruim logo após um reabastecimento, uma nova troca
+  é feita. Isso poderá ser revisto no futuro, se for um problema na prática.
+- A reposição de nível também acontece no estado normal (para compensar
+  consumo e evaporação).
+- O LED amarelo (troca em andamento) acende quando a água é considerada ruim e
+  só apaga ao fim do reabastecimento, e não ao fim do descarte, porque a
+  troca só termina quando a água limpa já está no bebedouro.
+- O fim do descarte e o fim do reabastecimento não exigem que a bomba
+  correspondente já esteja desligada: o nível atingido já é o que manda a
+  bomba desligar. Exigir isso só criaria dependência de ordem entre regras.
+- A leitura de TDS e turbidez não vale com o bebedouro no nível mínimo ou
+  abaixo, porque os sensores podem não estar submersos.
+
+Comportamentos conferidos e aprovados
+1. Com o reservatório de água suja cheio, o sistema fica em "descartando"
+   com o LED vermelho do reservatório sujo e o LED amarelo acesos, esperando o
+   usuário esvaziá-lo.
+2. Com o reservatório de água limpa vazio durante o "reabastecendo", o
+   bebedouro fica vazio, com o LED vermelho de "repor água" e o LED amarelo
+   acesos, esperando a reposição.
+3. Em aguardando, descartando e reabastecendo a circulação fica bloqueada
+   (intencional).
+
+Cuidados para o código
+- Cada bomba tem uma condição para ligar e outra, diferente, para desligar.
+  A condição de partida só é avaliada com a bomba desligada, e a de parada
+  só com ela ligada. Sem isso a bomba ligaria e desligaria na hora ("pico").
+- Os LEDs de nível baixo e de nível alto refletem diretamente a condição,
+  sem precisar de memória.
+- Os tempos de presença (5 s e 6 s) e os tempos máximos das bombas devem ser
+  contados com millis(), nunca com delay(), para o programa continuar
+  avaliando todas as regras.
+- Sugestões ainda não decididas: confirmar leituras de nível por 1 ou 2
+  segundos (ondas) e leituras de qualidade por alguns segundos (picos).
+
+Soluções adotadas para os travamentos (ver seção 7)
+- A água ruim só é registrada com o bebedouro acima do mínimo.
+- O fim do descarte também vale no estado aguardando: se o nível chegar no
+  mínimo antes de o descarte começar, o sistema segue para o reabastecimento.
+- No reabastecimento, a bomba de reposição liga enquanto o bebedouro não
+  estiver cheio (e não só no mínimo).
+- O descarte só parte com a bomba de reposição desligada.
+- A circulação para se o nível cair até o mínimo.
+
+==================================================
+1. CENÁRIOS DE FUNCIONAMENTO
+==================================================
+
+Cenário 1: dia normal, gato bebe
+Um gato chega e fica na frente do bebedouro. Se ele permanece ali por 5
+segundos seguidos, a bomba de circulação liga e a água começa a se mexer.
+Quando ele vai embora e o sensor fica 5 segundos sem detectar ninguém, a
+bomba desliga. Nada mais acontece.
+
+Cenário 2: o nível vai baixando aos poucos
+Ao longo do dia os gatos bebem e o nível do bebedouro chega no mínimo. Se o
+reservatório de água limpa ainda tem água, a bomba de reposição liga e enche
+o bebedouro até o máximo, depois desliga. Se um gato chegar enquanto isso, a
+circulação espera: só liga depois que o bebedouro terminar de encher.
+Se a circulação já estava ligada quando o nível chegou no mínimo, ela é
+desligada (para a bomba não funcionar sem água) e a reposição começa.
+
+Cenário 3: a água fica ruim enquanto um gato bebe
+Os sensores indicam que a água está ruim. O sistema passa para "aguardando"
+e acende o LED amarelo. A circulação deixa de ligar, porque não faz sentido
+circular água ruim. O gato que estava bebendo termina e vai embora. O
+descarte só começa depois de 6 segundos sem nenhum gato por perto.
+
+Cenário 4: troca completa sem problemas
+Com a água ruim detectada, nenhum gato por perto há 6 segundos, a circulação
+parada e espaço no reservatório de água suja, a bomba de descarte liga e o
+sistema passa para "descartando". O nível do bebedouro vai baixando até o
+mínimo. Aí o sistema muda para "reabastecendo" e a bomba de reposição liga,
+enchendo o bebedouro com água limpa até o máximo. Quando chega no máximo, o
+sistema volta para "normal" e o LED amarelo apaga.
+
+Cenário 5: um gato chega no meio do descarte
+A bomba de descarte continua trabalhando mesmo com o gato ali. O gato espera
+o processo terminar: descarta, repõe e só então a circulação volta e ele pode
+beber. Se o reservatório de água limpa estiver vazio, o gato fica sem água
+circulando até o usuário repor.
+
+Cenário 6: o reservatório de água suja enche no meio do descarte
+A bomba de descarte para e o LED vermelho de "esvaziar reservatório de água
+suja" acende. O estado continua "descartando" e o bebedouro fica parado, com
+um resto de água suja. Quando o usuário esvazia o reservatório, o descarte
+retoma sozinho de onde parou.
+
+Cenário 7: reservatório de água limpa vazio na hora de reabastecer
+O descarte terminou e o sistema está em "reabastecendo", mas o reservatório
+de água limpa está sem água suficiente. A bomba de reposição não liga, o LED
+vermelho de "repor água" acende e o LED amarelo continua aceso. O bebedouro fica
+vazio esperando. Quando o usuário enche o reservatório, a reposição liga
+sozinha e a troca termina.
+
+Cenário 8: água ruim, mas o reservatório de água suja já estava cheio
+O sistema fica em "aguardando" com os LEDs vermelho (reservatório sujo cheio)
+e amarelo acesos. O descarte não começa. O bebedouro mantém a água ruim, sem
+circulação. Quando o usuário esvazia o reservatório de água suja, o descarte
+começa assim que não houver gato por 6 segundos.
+
+Cenário 9: sensores indicam água ruim durante a troca
+Durante o descarte e o reabastecimento, os sensores de qualidade são
+ignorados, porque a troca já está em andamento. No descarte isso é ótimo, já
+que a água realmente está ruim. No reabastecimento, a água nova pode ainda se
+misturar com resíduos nas paredes e nos sensores. Na calibração, vale
+conferir que logo após a troca os sensores leem valores bons, para não haver
+falso alarme assim que o sistema voltar ao normal.
+
+Cenário 10: a água fica ruim durante um reabastecimento comum
+O nível chegou no mínimo e a bomba de reposição está enchendo (estado
+normal) quando os sensores detectam água ruim. O sistema passa para
+"aguardando". A reposição em andamento termina de encher e só então o
+descarte começa, depois de 6 segundos sem gato. Isso gera um pouco de
+desperdício: água limpa entra e logo é descartada. Decisão atual: aceitar
+isso e, se no futuro for um problema, revisar.
+
+Cenário 11: a água fica ruim com o bebedouro já no nível mínimo
+Não há o que descartar. O sistema deve ir direto para o reabastecimento, em
+vez de ficar esperando um descarte que nunca vai acontecer. (Ver nota sobre
+travamento na seção 7.)
+
+Cenário 12: o reservatório de água limpa acaba no meio do reabastecimento
+A bomba de reposição para e o LED vermelho de "repor água" acende. O
+bebedouro fica com o nível no meio do caminho. Quando o usuário repõe o
+reservatório, o enchimento deve continuar de onde parou, e não esperar o
+nível cair até o mínimo. (Ver nota sobre travamento na seção 7.)
+
+
+==================================================
+2. INTERVENÇÃO MANUAL DO USUÁRIO
+==================================================
+
+- Tiram água do bebedouro com a circulação ligada:
+  o nível chega no mínimo e a circulação desliga sozinha, para a bomba não
+  rodar vazia. Depois a bomba de reposição enche.
+
+- Tiram água do reservatório de água limpa no meio do enchimento:
+  a reposição para e o LED vermelho acende. Quando o usuário repõe, o
+  enchimento continua de onde parou.
+
+- Enchem o bebedouro à mão durante o reabastecimento:
+  ao chegar no máximo o sistema entende que acabou e volta ao normal. Se a
+  água ainda estiver ruim, os sensores detectam de novo e uma nova troca
+  começa.
+
+- Tiram o reservatório de água suja ou esquecem de colocar:
+  o sensor lê "vazio" e o sistema acha que há espaço. O descarte despeja
+  água fora. Isso o software não detecta; só uma proteção física (encaixe ou
+  guia do reservatório) resolve.
+
+- O nível do bebedouro baixa durante a espera ("aguardando"), por
+  evaporação ou retirada manual, até o mínimo:
+  não há mais o que descartar; o sistema deve seguir para o reabastecimento.
+
+
+==================================================
+3. TROCAS EM LOOP E LEITURAS DE QUALIDADE
+==================================================
+
+- A água limpa já vem com TDS perto do limite:
+  água de torneira costuma ter TDS considerável. Se a água nova do
+  reservatório já ficar acima do limite, o sistema reabastece, detecta ruim,
+  descarta, reabastece de novo, e assim vai até o reservatório limpo esvaziar
+  ou o de água suja encher. Na calibração, medir o TDS da água limpa do
+  reservatório e colocar o limite bem acima disso.
+
+- Pico de turbidez passageiro:
+  um pelo passando, uma bolha ou o gato mexendo na água pode fazer o sensor
+  disparar por um instante e iniciar uma troca à toa. A leitura deveria
+  precisar ficar ruim por alguns segundos seguidos (ou ser uma média de
+  várias leituras) antes de valer.
+
+- Sensor de TDS/turbidez fora da água:
+  com o nível muito baixo, os sensores no fundo podem ler ar e dar valores
+  sem sentido. Vale ignorar a leitura de qualidade quando o bebedouro estiver
+  no mínimo ou abaixo.
+
+
+==================================================
+4. SENSORES COM DEFEITO OU "MENTINDO"
+==================================================
+
+- Sensor de nível máximo do bebedouro sempre dizendo "não está cheio":
+  a bomba de reposição nunca para e o bebedouro transborda, até a água limpa
+  acabar. É o caso mais perigoso (molha a eletrônica).
+
+- Sensor de nível mínimo do bebedouro sempre dizendo "tem água":
+  o descarte nunca acha que acabou e a bomba de descarte roda a seco até o
+  reservatório de água suja encher.
+
+- Sensor de presença travado em "tem gato":
+  a circulação fica ligada sem parar e o descarte nunca começa, porque nunca
+  passa 6 segundos sem gato.
+
+- Sensor de presença travado em "sem gato":
+  a circulação nunca liga e a água fica parada. Os gatos ainda bebem, mas sem
+  movimento. O descarte pode começar com gato presente.
+
+- Sensor de qualidade travado em "ruim":
+  o sistema fica trocando água sem parar.
+
+- Sensor de qualidade travado em "bom" ou lendo zero:
+  a água ruim nunca é detectada.
+
+- Nível "tremendo" por ondas:
+  o gato bate no bebedouro, a água balança e o sensor liga e desliga rápido,
+  fazendo a bomba pulsar. Cada leitura de nível deveria precisar se manter
+  por 1 ou 2 segundos antes de ser considerada.
+
+
+==================================================
+5. PROBLEMAS FÍSICOS
+==================================================
+
+- Bomba ligada, mas sem sair água:
+  mangueira solta, entupimento ou ar preso. O nível não muda.
+
+- Vazamento:
+  o nível do bebedouro vai caindo devagar e a reposição liga com frequência
+  até esvaziar o reservatório limpo.
+
+- Filtro entupido:
+  a circulação perde força e o sensor de turbidez pode subir, causando
+  trocas seguidas.
+
+- Queda de energia no meio da troca:
+  ao voltar, o ESP reinicia no estado normal, com tudo desligado. Se o
+  bebedouro estiver no mínimo ele repõe; se a água estiver ruim os sensores
+  detectam de novo. O estado se recupera sozinho.
+
+- Bomba ligando sozinha na inicialização do ESP:
+  durante o boot os pinos podem ficar em nível indefinido e acionar as bombas
+  por um instante. Na eletrônica, um resistor de pull-down no acionamento de
+  cada bomba garante que ela fique desligada até o código assumir o controle.
+
+- Reservatório de água limpa vazio por muito tempo:
+  o bebedouro fica no mínimo, o LED vermelho acende e, se for o caso, os
+  gatos ficam sem água. Pode valer um alerta mais forte depois de certo
+  tempo (LED piscando ou buzzer).
+
+
+==================================================
+6. PROTEÇÃO CONTRA FALHAS (ADOTADA)
+==================================================
+
+Boa parte dos casos de sensor com defeito e problema físico se resolve com
+uma proteção geral, em vez de uma regra por caso. O motivo: nesses casos a
+própria lógica não consegue se proteger, porque depende do sensor que falhou.
+
+Como funciona:
+- Cada bomba tem um tempo máximo de funcionamento contínuo (T1 para a bomba
+  de reposição, T2 para a de descarte, T3 para a de circulação).
+- Se algum for ultrapassado, as três bombas são desligadas e a variável FALHA
+  passa a verdadeira.
+- Enquanto FALHA for verdadeira, nenhuma bomba liga (a partida da reposição,
+  da circulação e do descarte exige FALHA falsa). Sem essa trava, a bomba
+  religaria na volta seguinte do programa, porque o sensor com defeito
+  continuaria dizendo a mesma coisa.
+- Para sair da falha basta reiniciar o ESP, porque a variável volta a falsa
+  ao ligar. Não precisa de botão.
+- A falha é indicada piscando os LEDs vermelhos.
+- FALHA é uma variável separada, e não um quinto estado da troca, porque a
+  falha pode acontecer em qualquer estado, inclusive no normal.
+
+Valores a definir: T1, T2 e T3, a partir da vazão medida (tempo normal para
+encher ou esvaziar mais uma margem). T3 precisa ser folgado, para um gato que
+bebe por muito tempo não gerar falha à toa. O tempo conta só enquanto a bomba
+está ligada, então uma pausa (por exemplo, reservatório sujo cheio) não
+dispara a falha.
+
+Pontos de atenção:
+- Se os LEDs piscarem só algumas vezes e depois voltarem ao normal, o usuário
+  não fica sabendo que o sistema continua em falha. O ideal é piscar enquanto
+  FALHA for verdadeira (e/ou mostrar no LCD).
+- Os LEDs vermelhos também são usados para nível; é preciso definir que a
+  indicação de falha tem prioridade sobre eles.
+- Um sensor de presença travado em "tem gato" faz a circulação estourar o
+  tempo e a falha para o sistema inteiro, inclusive a reposição. É aceitável
+  como proteção, mas vale saber.
+
+Não adotado por enquanto (pode ser acrescentado se os testes mostrarem
+necessidade): limite de trocas seguidas, alerta de reposições frequentes
+(vazamento) e buzzer.
+
+
+==================================================
+7. PONTOS DE TRAVAMENTO ENCONTRADOS NA TABELA (RESOLVIDOS)
+==================================================
+
+- Água ruim com bebedouro no mínimo: o sistema ficaria em "aguardando" para
+  sempre, porque o descarte exige água no bebedouro e nada tirava o sistema
+  desse estado.
+  Solução: a água ruim só é registrada acima do mínimo, e o fim do descarte
+  também vale em "aguardando" (cobre o caso de o nível cair até o mínimo
+  durante a espera).
+
+- Reservatório limpo esvazia no meio do reabastecimento: a reposição só
+  religava com o bebedouro no mínimo, mas o nível estava no meio do caminho.
+  O sistema ficaria em "reabastecendo" para sempre.
+  Solução: em "reabastecendo", a reposição liga enquanto o bebedouro não
+  estiver cheio.
+
+- Bomba de descarte e bomba de reposição ligadas ao mesmo tempo: possível se
+  a água ficasse ruim com a reposição em andamento.
+  Solução: o descarte só parte com a reposição desligada.
+
+- Circulação sem proteção contra falta de água.
+  Solução: a circulação para se o nível chegar no mínimo.

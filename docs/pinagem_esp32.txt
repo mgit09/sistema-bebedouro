@@ -1,0 +1,98 @@
+ESP32 DevKitC
+- 32-bit Xtensa dual-core @ 240 MHz
+- Wi-Fi IEEE 802.11b/g/n 2.4 GHz
+- Bluetooth 4.2 BR/EDR and BLE
+- 520 KB SRAM (16 KB for cache)
+- 448 KB ROM
+- 34 GPIOs, 4x SPI, 3x UART, 2x I2C
+- 2x I2S, RMT, LED PWM, 1 host SD/eMMC/SDIO
+- 1 slave SDIO/SPI, TWAI, 12-bit ADC, Ethernet
+
+
+PINO | FUNCOES
+- GPIO36 | S_VP, ADC1_0, RTC
+- GPIO39 | S_VN, ADC1_3, RTC
+- GPIO34 | VDET_1, ADC1_6, RTC
+- GPIO35 | VDET_2, ADC1_7, RTC
+- GPIO32 | 32K_XP, TOUCH9, ADC1_4, RTC
+- GPIO33 | 32K_XN, TOUCH8, ADC1_5, RTC
+- GPIO25 | DAC_1, ADC2_8, RTC
+- GPIO26 | DAC_2, ADC2_9, RTC
+- GPIO27 | TOUCH7, ADC2_7, RTC
+- GPIO14 | HSPI_SCK, MTMS, TOUCH6, ADC2_6, RTC
+- GPIO12 | VDD_FLASH, HSPI_MISO, MTDI, TOUCH5, ADC2_5, RTC
+- GPIO13 | HSPI_MOSI, MTCK, TOUCH4, ADC2_4, RTC
+- GPIO9 | D2
+- GPIO10 | D3
+- GPIO11 | CMD
+
+
+PINO | FUNCOES
+- GPIO23 | VSPI_MOSI, WIRE_MOSI
+- GPIO22 | WIRE_SCL
+- GPIO1 | U0TXD, SERIAL_TX
+- GPIO3 | U0RXD, SERIAL_RX
+- GPIO21 | WIRE_SDA
+- GPIO19 | VSPI_MISO
+- GPIO18 | VSPI_SCK
+- GPIO5 | VSPI_SS, SDIO
+- GPIO17 | GPIO
+- GPIO16 | GPIO
+- GPIO4 | RTC, ADC2_0, TOUCH0
+- GPIO0 | RTC, ADC2_1, TOUCH1, BOOT
+- GPIO2 | RTC, ADC2_2, TOUCH2
+- GPIO15 | RTC, ADC2_3, TOUCH3, MTDO, HSPI_SS, LOG
+- GPIO8 | D1
+- GPIO7 | D0
+- GPIO6 | SCK
+
+
+ALIMENTACAO
+- 3V3 | Alimentacao de 3,3 V
+- 5V0 | Alimentacao de 5 V
+- GND | Terra
+- EN | Habilitacao/Reset
+- BOOT | Botao de inicializacao
+
+
+LEGENDA DAS FUNCOES
+- GPIOX | GPIO Input Only (somente entrada)
+- GPIOX | GPIO Input and Output (entrada e saida)
+- DAC_X | Digital-to-Analog Converter
+- DEBUG | JTAG for Debugging
+- FLASH | External Flash Memory (SPI)
+- ADCX_CH | Analog-to-Digital Converter
+- TOUCHX | Touch Sensor Input Channel
+- OTHER | Other Related Functions
+- SERIAL | Serial for Debug/Programming
+- ARDUINO | Arduino Related Functions
+- STRAP | Strapping Pin Functions
+- RTC | RTC Power Domain (VDD3P3_RTC)
+- GND | Ground (terra)
+- PWD | Power Rails (3V3 e 5V)
+- ! | Pino compartilhado com a memoria Flash SPI. Nao pode ser usado como GPIO comum.
+
+
+GPIO STATE
+- WPU | Weak Pull-up (interno)
+- WPD | Weak Pull-down (interno)
+- PU | Pull-up (externo)
+- IE | Input Enable (habilitado apos reset)
+- ID | Input Disabled (desabilitado apos reset)
+- OE | Output Enable (habilitado apos reset)
+- OD | Output Disabled (desabilitado apos reset)
+
+
+COMPONENTES DA PLACA
+- ESPRESSIF | Fabricante
+- ESP32-WROOM | Modulo ESP32
+- CP2102 | Conversor USB para serial
+- EN | Habilitacao/Reset
+- BOOT | Botao de inicializacao
+- 3V3 | Alimentacao de 3,3 V
+- 5V0 | Alimentacao de 5 V
+- GND | Terra
+
+
+OBSERVACAO
+- Os GPIOs 6 a 11 sao normalmente utilizados pela memoria Flash interna do modulo ESP32-WROOM e nao devem ser usados como GPIOs de uso geral.

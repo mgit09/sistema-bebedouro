@@ -1,0 +1,220 @@
+LISTA DE TODOS OS ITENS [EM ORDEM ALFABÉTICA]
+
+Documento com a relação dos materiais e componentes utilizados no desenvolvimento do bebedouro automatizado para gatos, incluindo especificações técnicas, quantidades e aplicações no sistema.
+
+OBS: alguns componentes genéricos como fios ou resistores estão listados em COMPONENTES GENÉRICOS DAS PLACAS OU NÃO ESPECIFICADOS
+
+
+==============================================================
+
+BALDE RETANGULAR COM TAMPA (1x unidade)
+------------------------------------------------
+- Capacidade nominal: 3,6 L
+- Material: Plástico PP (polipropileno)
+- Tampa com lacre de segurança
+- Dimensões externas aproximadas (CxLxA): 194 x 166 x 173 mm
+- Peso aproximado: 117 g (com tampa e alça)
+- Aplicação: Reservatório principal do bebedouro, onde o gato bebe, com circulação de água e instalação dos sensores de TDS, pH, turbidez e presença
+
+==============================================================
+
+BALDES DE ARGAMASSA COM TAMPA (2x unidades)
+------------------------------------------------
+- Capacidade: nominal de 25 kg (vol em litros a confirmar)
+- Material: plástico
+- Aplicação: Reservatórios de água limpa e água suja do sistema
+
+==============================================================
+
+BOMBA DE ÁGUA (3x unidades)
+------------------------------------------------
+- Modelo: JT100
+- Tensão adequada: DC 3 a 5 V
+- Corrente máxima: ~1,5 A
+- Corrente medida em teste prático: 0,6 a 0,7 A (verificada com multímetro durante o funcionamento)
+- Elevação máxima: 1 m
+- Vazão de água: ~1 a 1,5 L/min
+- Comprimento do fio: 7 cm
+- Diâmetro da entrada: ~3,3 mm
+- Diâmetro da saída: ~4,5 mm
+- Dimensões (CxLxA): 43,5 x 23 x 30 mm
+- Peso: 26 g
+
+Observações:
+- A corrente verificada foi entre 0,6 a 0,7A durante o teste.
+- 1x no reservatório de água limpa e 2x no bebedouro (uma para circular água e outra para mandar água suja ao outro reservatório).
+
+==============================================================
+
+BORNES KRE DE 2 VIAS (8x unidades)
+------------------------------------------------
+- Modelo: KF301-2T
+- Tipo: Borne para conexão de fios
+- Número de vias: 2
+- Espaçamento entre terminais: 5,08 mm
+- Corrente máxima: 10 A
+- Fixação dos fios por parafusos
+- Montagem em placa de circuito impresso (PCI)
+- Aplicação: Conexão dos sensores à placa eletrônica.
+
+==============================================================
+
+BORNES KRE DE 3 VIAS (4x unidades - a confirmar)
+------------------------------------------------
+- Modelo: KF301-3T
+- Tipo: Borne para conexão de fios
+- Número de vias: 3
+- Espaçamento entre terminais: 5,08 mm
+- Corrente máxima: 10 A
+- Fixação dos fios por parafusos
+- Montagem em placa de circuito impresso (PCI)
+- Aplicação: sensores de turbidez, TDS, pH e comunicação com a terceira placa
+
+==============================================================
+
+BORNES KRE DE 4 VIAS (1x unidade)
+------------------------------------------------
+- Detalhes a confirmar aṕos a compra
+- Aplicação: sensor de presença
+
+==============================================================
+
+COMPONENTES GENÉRICOS DAS PLACAS OU NÃO ESPECIFICADOS
+------------------------------------------------
+- 2x Capacitores: tipo e capacitância a confirmar
+- 4x Bornes para cabos banana: conexão elétrica externa
+- 1x Conector jack DC: entrada de alimentação da placa
+- Resistores: valores e quantidades a confirmar (incluindo, mas possivelmente não só, 1 kΩ e 10 kΩ)
+- Fios para extensão dos fios das bombas e sensores: tipo a confirmar
+
+==============================================================
+
+FONTE DE ALIMENTAÇÃO 12V 3A (1x unidade)
+------------------------------------------------
+- Tipo: Fonte de alimentação AC-DC
+- Tensão de entrada: Bivolt (110/220 V AC)
+- Tensão de saída: 12 V DC
+- Corrente máxima de saída: 3 A
+- Potência máxima: 36 W
+
+==============================================================
+
+LEDS (6x unidades)
+------------------------------------------------
+- Placa 1: 3x LEDs para debug
+- Placa 2: 2x LEDs vermelhos (nível mínimo de água limpa e nível máximo de água suja) e 1x LED amarelo (troca de água pendente/em andamento)
+
+==============================================================
+
+MÓDULOS REGULADORES DE TENSÃO LM2596 (2x unidades)
+------------------------------------------------
+- Modelo: LM2596
+- Tipo: Conversor DC-DC Step Down (redutor de tensão)
+- Tensão de entrada: ~4,5 a 40 V DC
+- Tensão de saída: ajustável de ~1,25 a 37 V DC
+- Corrente máxima: até 3 A
+- Ajuste da tensão de saída por trimpot
+- Aplicação: 1x regulado para 5 V e 1x regulado para 3,3 V
+
+==============================================================
+
+MOSFETS (2x unidades)
+------------------------------------------------
+- Modelos e especificações elétricas: a confirmar.
+- Placa 1: MOSFET de proteção contra inversão de polaridade na alimentação do módulo regulador de tensão.
+- Placa 2: MOSFET de nível lógico, acionado pelo ESP para controlar a alimentação da bomba d'água. 
+
+==============================================================
+
+SENSOR DE NÍVEL DE ÁGUA (4x unidades)
+------------------------------------------------
+- Tipo: Interruptor de bóia (mini bóia)
+- Potência máxima de comutação: 10 W
+- Tensão máxima de comutação: DC 110 V
+- Corrente máxima de comutação: 0,5 A
+- Tensão máxima de ruptura: DC 220 V
+- Corrente máxima de carga: 1,0 A
+- Resistência máxima de contato: 100 mΩ
+- Faixa de temperatura: -30 °C a +125 °C
+
+Observações:
+- Aplicação: 1x no reservatório de água limpa (min), 2x no bebedouro (min/max), 1x no reservatório de água suja (max).
+- A parte móvel sobe com a água e desce quando o nível diminui, fechando o contato com o eixo e enviando o sinal elétrico.
+- Nível mínimo: presença de sinal indica que a água atingiu ou está abaixo do mínimo definido pela posição do sensor.
+- Nível máximo: ausência de sinal indica que a água atingiu ou ultrapassou o máximo; essa lógica deve ser implementada no ESP.
+
+==============================================================
+
+SENSOR DE pH (1x unidade)
+------------------------------------------------
+- Modelo provável: PH-4502C (identificação por semelhança visual)
+- Tipo: Eletrodo de pH + módulo eletrônico de condicionamento de sinal
+- Tensão de alimentação do módulo: 5 V DC (±0,2 V)
+- Corrente de operação declarada: 5 a 10 mA
+- Saída: Analógica (PO)
+- Faixa de medição declarada: 0 a 14 pH
+- Ponto zero nominal: pH 7 ± 0,5
+- Tempo de resposta declarado: 5 s
+- Tempo de estabilização declarado: 60 s
+- Faixa de temperatura declarada: 0 a 60 °C
+- Conector da sonda: BNC
+- Comprimento de cabo declarado: 1 m
+- Dimensões declaradas do módulo: 42 x 32 x 13 mm (sem conectores)
+- Dimensões declaradas da sonda: 170 x 12,5 mm
+
+Observações:
+- Modelo e especificações exatas a confirmar.
+- Requer calibração com soluções tampão.
+- Verificar a tensão da saída analógica antes de conectar ao ESP32 (entrada não tolerante a 5 V).
+- Tutorial de uso: https://blog.eletrogate.com/monitorando-o-ph-de-liquidos-com-esp32-e-sensor-ph-4502c/
+- Imagem do circuito eletrônico: https://www.eletrogate.com/sensor-de-ph-arduino-modulo-de-leitura
+
+==============================================================
+
+SENSOR DE TURBIDEZ ST100 (1x unidade)
+------------------------------------------------
+- Modelo: ST100 (identificação por semelhança visual)
+- Tipo: Sensor óptico de turbidez da água
+- Alimentação: 5 V DC
+- Corrente máxima anunciada: 30 mA
+- Saída: Analógica (0 a 4,5 V) e digital (0 a 5 V)
+- Ajuste de sensibilidade por trimpot
+
+Observações:
+- Adaptar a tensão das saídas antes de conectar ao ESP32 (GPIOs de 3,3 V).
+- Não converter diretamente para NTU sem calibração.
+- Tutorial de uso: https://www.usinainfo.com.br/blog/sensor-de-turbidez-projeto-de-leitura-da-qualidade-da-agua/
+- Fonte das infos técnicas: https://www.usinainfo.com.br/sensores-de-qualidade-da-agua/sensor-de-turbidez-para-arduino-st100-modulo-de-leitura-original-4539.html
+
+==============================================================
+
+SENSOR TDS (1x unidade)
+------------------------------------------------
+- Modelo: TDS Meter V1.0 (identificação por semelhança visual)
+- Tipo: Sensor analógico de TDS (sólidos dissolvidos totais)
+- Tensão de alimentação: DC 3,3 a 5,5 V
+- Tensão de saída analógica: 0 a 2,3 V
+- Consumo de corrente: 3 a 6 mA
+- Faixa de medição declarada: 0 a 1.000 ppm
+- Precisão declarada: ±10% do fundo de escala (a 25 °C)
+- Temperatura máxima da água: 55 °C
+- Conexões: Cabo de 3 fios entre módulo e ESP32; sonda com cabo branco de 2 fios
+
+Observações:
+- Identificação baseada na semelhança visual com módulos TDS Meter V1.0 documentados; fabricante e especificações exatas não confirmados.
+- Testar com amostras conhecidas primeiro.
+- Fonte das especificações técnicas: https://wiki.keyestudio.com/KS0429_keyestudio_TDS_Meter_V1.0?utm_source=chatgpt.com
+- Tutorial: https://www.usinainfo.com.br/blog/projeto-medidor-de-tds-arduino-para-condutividade-da-agua/
+
+==============================================================
+
+SENSOR ULTRASSÔNICO HC-SR04 (1x unidade)
+------------------------------------------------
+- Modelo: HC-SR04
+- Alimentação: 5 V DC
+- Corrente de operação: ~2 mA
+- Alcance de medição: 2 cm a 4 m
+- Precisão declarada: ±3 mm
+- Ângulo de medição: ~15°
+- Interface: 4 pinos (VCC, Trigger, ECHO, GND)
+- Aplicação: Detecção da presença do gato em frente ao bebedouro.
