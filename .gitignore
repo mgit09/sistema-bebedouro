@@ -1,0 +1,24 @@
+# arquivos de compilação da Arduino IDE
+build/
+*.elf
+*.bin
+*.map
+
+# KiCad: backups e arquivos gerados automaticamente
+*-backups/
+_autosave-*
+*.bak
+*.kicad_prl
+fp-info-cache
+*-cache.lib
+
+# LibreOffice: arquivos de trava de planilhas abertas
+.~lock.*#
+
+# editores
+.vscode/
+.idea/
+
+# sistema operacional
+.DS_Store
+Thumbs.db
