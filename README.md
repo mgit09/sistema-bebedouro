@@ -83,12 +83,8 @@ O teste usa dados simulados. Para usar com dados reais, incluir `painel_web.h` n
 
 ## Autores
 
-- Mateus
-- Victor Gabriel
 - Arthur Mesquita
 - Diogo Muzzi
 - Lucas Mendes
-
-## Licença
-
-A definir.
+- Mateus
+- Victor Gabriel
