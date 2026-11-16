@@ -79,6 +79,22 @@ BORNES KRE DE 4 VIAS (1x unidade)
 
 ==============================================================
 
+BUZZER ATIVO 5V (1x unidade)
+------------------------------------------------
+- Tipo: Buzzer ativo (emissão sonora contínua)
+- Tensão de operação: DC 3,5 a 5 V
+- Diâmetro: 12 mm
+- Altura: 10 mm
+
+Observações:
+- Possui oscilador interno, dispensando a geração de frequência externa pelo ESP32.
+- Emite som contínuo enquanto alimentado.
+- A corrente de operação e a frequência sonora não foram especificadas pelo fabricante.
+
+Aplicação: Na 3a placa, para emissão de alertas sonoros de eventos do bebedouro.
+
+==============================================================
+
 COMPONENTES GENÉRICOS DAS PLACAS OU NÃO ESPECIFICADOS
 ------------------------------------------------
 - 2x Capacitores: tipo e capacitância a confirmar
@@ -103,6 +119,24 @@ LEDS (6x unidades)
 ------------------------------------------------
 - Placa 1: 3x LEDs para debug
 - Placa 2: 2x LEDs vermelhos (nível mínimo de água limpa e nível máximo de água suja) e 1x LED amarelo (troca de água pendente/em andamento)
+
+==============================================================
+
+MÓDULO DISPLAY DE 7 SEGMENTOS COM 4 DÍGITOS – TM1637 (1x unidade)
+------------------------------------------------
+- Modelo do controlador: TM1637
+- Tipo: Display LED de 7 segmentos com 4 dígitos
+- Tensão de alimentação: DC 3,3 a 5 V (dependendo da versão)
+- Interface de comunicação: Serial de 2 fios (CLK e DIO)
+- Quantidade de pinos: 4 (VCC, GND, CLK e DIO)
+- Ajuste de brilho: 8 níveis de intensidade
+- Corrente de operação: variável conforme o brilho e os segmentos acesos
+
+Observações:
+- Comunicação com o ESP32 realizada por apenas 2 GPIOs (CLK e DIO).
+- O protocolo TM1637 não é I²C convencional.
+
+Aplicação: Na 3a placa, para exibição de informações do bebedouro, como valores dos sensores.
 
 ==============================================================
 
