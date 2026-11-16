@@ -118,7 +118,28 @@ FONTE DE ALIMENTAÇÃO 12V 3A (1x unidade)
 LEDS (6x unidades)
 ------------------------------------------------
 - Placa 1: 3x LEDs para debug
-- Placa 2: 2x LEDs vermelhos (nível mínimo de água limpa e nível máximo de água suja) e 1x LED amarelo (troca de água pendente/em andamento)
+- Placa 2: 1x LED para debug
+- Placa 3: 11x LEDs indicadores:
+    5 verdes, 
+    5 amarelos,
+    1 vermelho (para troca de água pendente)
+
+==============================================================
+
+MICROCONTROLADOR MSP430 (1x unidade - placa 3)
+------------------------------------------------
+- Fabricante: Texas Instruments (TI)
+- Família: MSP430
+- Arquitetura: CPU RISC de 16 bits
+- Alimentação: (?) Dependente do modelo específico
+
+Observações:
+- O modelo exato do microcontrolador ainda precisa ser identificado.
+- A família MSP430 é projetada para aplicações de baixo consumo energético.
+- Possui recursos para controle de dispositivos externos por meio de entradas e saídas digitais.
+- As características elétricas e os recursos disponíveis variam conforme o modelo específico.
+
+Aplicação: Na 3a placa, para controle do display de 7 segmentos e processamento das informações destinadas à exibição.
 
 ==============================================================
 

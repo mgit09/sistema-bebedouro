@@ -1,0 +1,323 @@
+
+======================================================================
+>TABELA: COMPONENTES E CÓDIGOS
+======================================================================
+
+COMPONENTE:
+Recipiente de água limpa, que atua como reservatório do bebedouro
+CÓDIGO: r1
+
+======================================================================
+
+COMPONENTE:
+Recipiente de água suja, que atua como destino e reservatório da água de descarte do bebedouro
+CÓDIGO: r2
+
+======================================================================
+
+COMPONENTE:
+Bebedouro onde o gato efetivamente bebe água
+CÓDIGO: bebedouro
+
+======================================================================
+
+COMPONENTE:
+Bomba de água do r1 que manda água limpa pro bebedouro
+CÓDIGO: bomba1
+
+======================================================================
+
+COMPONENTE:
+Bomba de água do bebedouro que manda água suja pra r2
+CÓDIGO: bomba2
+
+======================================================================
+
+COMPONENTE:
+Bomba de água do bebedouro que fica circulando a água
+CÓDIGO: bomba3
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível de água do r1 (mínimo)
+CÓDIGO: snivel1
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível de água do r2 (máximo)
+CÓDIGO: snivel2
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível máximo de água do bebedouro
+CÓDIGO: snivel3max
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível mínimo de água do bebedouro
+CÓDIGO: snivel3min
+
+======================================================================
+
+COMPONENTE:
+Sensor de presença para detectar presença do gato em frente ao bebedouro
+CÓDIGO: sprox
+
+======================================================================
+
+COMPONENTE:
+LED vermelho de aviso para repor água do r1
+CÓDIGO: led1
+
+======================================================================
+
+COMPONENTE:
+LED vermelho de aviso para remover água do r2
+CÓDIGO: led2
+
+======================================================================
+
+COMPONENTE:
+LED amarelo de aviso que o processo de troca de água do bebedouro pendente/em andamento
+CÓDIGO: led3
+
+======================================================================
+
+============================================================
+>TABELA: VARIÁVEL "ESTADO_TROCA"
+============================================================
+
+NORMAL
+-----------------------------------------------
+EXPLICAÇÃO
+Não há troca de água solicitada.
+
+============================================================
+
+AGUARDANDO
+-----------------------------------------------
+EXPLICAÇÃO
+A água foi considerada ruim, mas o descarte ainda não começou.
+
+============================================================
+
+DESCARTANDO
+-----------------------------------------------
+EXPLICAÇÃO
+A bomba2 está retirando água do bebedouro.
+
+============================================================
+
+REABASTECENDO
+-----------------------------------------------
+EXPLICAÇÃO
+O descarte terminou e a bomba1 está repondo água limpa.
+
+============================================================
+>TABELA: LÓGICA DO ESP
+===========================
+C1: Alertar nível baixo em r1
+-----------------------------------------------
+ONDE?
+r1
+-----------------------------------------------
+CONDIÇÃO (SE)
+[Água r1 <= snivel1]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar o led1
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água r1 > snivel1]
+-----------------------------------------------
+COMENTÁRIOS
+O bloqueio da bomba é feito pela checagem nas condições que requerem a ativação dessa bomba.
+
+===========================
+C2: Alertar nível alto em r2
+-----------------------------------------------
+ONDE?
+r2
+-----------------------------------------------
+CONDIÇÃO (SE)
+[Água r2 >= snivel2]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar o led2
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água r2 < snivel2]
+-----------------------------------------------
+COMENTÁRIOS
+-
+
+===========================
+C3: Registrar qualidade de água ruim e necessidade de troca
+-----------------------------------------------
+ONDE?
+bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+[ESTADO_TROCA = "NORMAL"]
+& ([Água TDS > 120] OU [Água turbidez > 200])
+& [Água bebedouro > snivel3min]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Definir ESTADO_TROCA = "AGUARDANDO"
+- Ligar led3
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+Dessa forma, o sistema irá registrar uma troca pendente quando for detectado em qualquer momento uma qualidade ruim. A troca ocorrerá quando houverem condições adequadas. Além disso, a leitura dos sensores não conta se a água tiver nível no min (ou seja, se eles não tiverem submersos).
+
+===========================
+C4: Mandar água de r1 pro bebedouro quando preciso
+-----------------------------------------------
+ONDE?
+r1, bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+{
+([ESTADO_TROCA = "NORMAL"] & [Água bebedouro <= snivel3min])
+OU
+([ESTADO_TROCA = "REABASTECENDO"] & [Água bebedouro < snivel3max])
+}
+& [Água r1 > snivel1]
+& [bomba2 = OFF]
+& [bomba3 = OFF]
+& [FALHA = False]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar a bomba1
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água bebedouro >= snivel3max]
+OU
+[Água r1 <= snivel1]
+-----------------------------------------------
+COMENTÁRIOS
+A condição também considera um reabastecimento no estado NORMAL, para o caso de ter evaporado água ou algo do tipo.
+
+===========================
+C5: Circular água no bebedouro
+-----------------------------------------------
+ONDE?
+bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+[ESTADO_TROCA = "NORMAL"]
+& [Água bebedouro > snivel3min]
+& [Água bebedouro <= snivel3max]
+& [sprox = 1 por 5s ou mais]
+& [bomba1 = OFF]
+& [bomba2 = OFF]
+& [FALHA = False]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar a bomba3
+-----------------------------------------------
+PARE/MUDE QUANDO
+[sprox = 0 por pelo menos 5 s]
+OU
+[Água bebedouro <= snivel3min]
+-----------------------------------------------
+COMENTÁRIOS
+Aqui não há condições que verificam a condição da água (sinais opostos às condições de C6) pois somente depois do gato sair (terminar de beber) a condição C6 seria permitida. Além disso, a circulação para se por algum motivo anormal a água cair abaixo do min.
+
+===========================
+C6: Mandar água suja do bebedouro pra r2 (estado de descarte)
+-----------------------------------------------
+ONDE?
+r2, bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+([ESTADO_TROCA = "AGUARDANDO"] OU [ESTADO_TROCA = "DESCARTANDO"])
+& [Água bebedouro > snivel3min]
+& [Água r2 < snivel2]
+& [sprox = 0 por 6s ou mais]
+& [bomba1 = OFF]
+& [bomba3 = OFF]
+& [FALHA = False]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar a bomba2
+- Definir ESTADO_TROCA = "DESCARTANDO"
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água r2 >= snivel2]
+OU
+[Água bebedouro <= snivel3min]
+-----------------------------------------------
+COMENTÁRIOS
+Se r2 encher no meio do descarte, a bomba2 para. Por isso, a condição considera os dois estados, então o descarte retoma sozinho quando r2 for esvaziado.
+
+===========================
+C7: Finalizar descarte de água suja e trocar estado para reabastecendo
+-----------------------------------------------
+ONDE?
+sistema
+-----------------------------------------------
+CONDIÇÃO (SE)
+([ESTADO_TROCA = "DESCARTANDO"] OU [ESTADO_TROCA = "AGUARDANDO"])
+& [Água bebedouro <= snivel3min]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Definir ESTADO_TROCA = "REABASTECENDO"
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+As condições consideram, além do DESCARTANDO, o AGUARDANDO também, pois se a água do bebedouro cair pro min antes de iniciar o descarte o sistema travaria (já que C6 considera [Água bebedouro > snivel3min]).
+
+===========================
+C8: Finalizar reabastecimento de água limpa e voltar ao funcionamento normal
+-----------------------------------------------
+ONDE?
+sistema
+-----------------------------------------------
+CONDIÇÃO (SE)
+[ESTADO_TROCA = "REABASTECENDO"]
+& [Água bebedouro >= snivel3max]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Definir ESTADO_TROCA = "NORMAL"
+- Desligar o led3
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+-
+
+===========================
+C9: Proteger contra bomba ligada por tempo demais
+-----------------------------------------------
+ONDE?
+sistema
+-----------------------------------------------
+CONDIÇÃO (SE)
+[bomba1 = ON continuamente por mais que T1]
+OU [bomba2 = ON continuamente por mais que T2]
+OU [bomba3 = ON continuamente por mais que T3]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Piscar led1 e led2 enquanto FALHA = True
+- Desligar bomba1
+- Desligar bomba2
+- Desligar bomba3
+- FALHA = True
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+Para sair da falha, o reinício do ESP já basta, porque a variável fica na memória e volta a falso ao ligar. Não precisa de botão.
+===========================
+
