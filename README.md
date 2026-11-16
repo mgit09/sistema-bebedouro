@@ -35,25 +35,29 @@ Cuidado: as saídas dos sensores de pH e turbidez podem passar de 3,3 V, e os GP
 ## Estrutura do repositório
 
 ```
-bebedouro-gatos/
-├── README.md
+sistema-bebedouro/
 ├── docs/                               # Documentação do projeto
 │   ├── componentes.txt
 │   ├── pinagem_esp32.txt
 │   ├── cenarios_bebedouro.txt
 │   ├── logica_esp.ods
-│   └── modelagem/                      # Diagramas iniciais (Visual Paradigm)
+│   └── modelagem/                      # Diagramas Visual Paradigm
 ├── hardware/                           # Esquemáticos e projeto das placas
-└── firmware/
-    ├── placa_pcb/                      # Testes feitos na placa de circuito impresso
-    │   └── teste_sensores_por_comando/
-    ├── protoboard/                     # Testes individuais feitos na protoboard
-    │   ├── teste_sensores_de_nivel/
-    │   ├── teste_tds/
-    │   ├── teste_presenca/
-    │   └── teste_leds/
-    └── painel_web/
-        └── teste_painel_web/           # Painel web com dados simulados
+├── firmware/
+│   ├── painel_web/                     # Painel web com dados do bebedouro
+│   │   └── teste_painel_web/           
+│   ├── placa_pcb/                      # Testes feitos na pcb
+│   │   └── teste_sensores_por_comando/
+│   └── testes-individuais/             # Testes individuais de compontentes
+│       ├── teste_bombas/
+│       ├── teste_leds/
+│       ├── teste_ph/
+│       ├── teste_presenca/
+│       ├── teste_sensores_de_nivel/
+│       └── teste_tds/
+├── .gitignore
+├── LICENSE
+└── README.md
 ```
 
 ## Como rodar os códigos
