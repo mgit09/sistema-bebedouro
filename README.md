@@ -43,18 +43,9 @@ sistema-bebedouro/
 │   ├── logica_esp.ods
 │   └── modelagem/                      # Diagramas Visual Paradigm
 ├── hardware/                           # Esquemáticos e projeto das placas
-├── firmware/
-│   ├── painel_web/                     # Painel web com dados do bebedouro
-│   │   └── teste_painel_web/           
-│   ├── placa_pcb/                      # Testes feitos na pcb
-│   │   └── teste_sensores_por_comando/
-│   └── testes-individuais/             # Testes individuais de compontentes
-│       ├── teste_bombas/
-│       ├── teste_leds/
-│       ├── teste_ph/
-│       ├── teste_presenca/
-│       ├── teste_sensores_de_nivel/
-│       └── teste_tds/
+├── firmware/                           # Códigos para o Arduino IDE
+│   ├── testes-gerais
+│   └── testes-individuais/
 ├── .gitignore
 ├── LICENSE
 └── README.md
