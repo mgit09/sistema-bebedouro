@@ -1,8 +1,8 @@
 # Bebedouro Automatizado para Gatos
 
-Bebedouro automatizado para gatos baseado em ESP32. O sistema monitora a qualidade da água (TDS, pH e turbidez), os níveis dos reservatórios e a presença do gato, e realiza a troca de água automaticamente com três bombas. Um painel web hospedado no próprio ESP32 mostra o estado do sistema em tempo real.
+Bebedouro automatizado para gatos baseado em ESP32. O sistema monitora a qualidade da água (TDS e pH), os níveis dos reservatórios e a presença do gato, e realiza a troca de água automaticamente com três bombas. Um painel web hospedado no próprio ESP32 mostra o estado do sistema em tempo real.
 
-Projeto desenvolvido em grupo na disciplina de Laboratório de Sistemas I. O escopo é apenas a parte da água (sem alimentação).
+Projeto desenvolvido em grupo na disciplina de Laboratório de Sistemas I.
 
 **Status:** em desenvolvimento (fase de testes e integração na placa de circuito impresso).
 
@@ -22,7 +22,6 @@ A lógica completa (condições, decisões e casos extremos) está em [`docs/`](
 | ESP32 DevKitC (ESP32-WROOM) | Controlador |
 | Sensor TDS (TDS Meter V1.0) | Sólidos dissolvidos na água |
 | Sensor de pH (PH-4502C) | Acidez da água |
-| Sensor de turbidez (ST100) | Sujeira na água |
 | Sensor ultrassônico HC-SR04 | Presença do gato |
 | 4 sensores de nível (mini boia) | Níveis mínimo e máximo dos reservatórios |
 | 3 bombas JT100 (3 a 5 V) | Circulação, reposição e descarte |
@@ -44,7 +43,7 @@ sistema-bebedouro/
 │   └── modelagem/                      # Diagramas Visual Paradigm
 ├── hardware/                           # Esquemáticos e projeto das placas
 ├── firmware/                           # Códigos para o Arduino IDE
-│   ├── testes-gerais
+│   ├── testes-gerais/
 │   └── testes-individuais/
 ├── .gitignore
 ├── LICENSE
