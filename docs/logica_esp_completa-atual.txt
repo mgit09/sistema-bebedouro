@@ -1,0 +1,677 @@
+======================================================================
+LÓGICA DO ESP - BEBEDOURO AUTOMATIZADO PARA GATOS [VERSÃO ATUALIZADA - 18/11/2026]
+======================================================================
+
+RESUMO (LEIA ISTO PRIMEIRO)
+-----------------------------------------------
+O sistema mantém a água de um bebedouro para gatos. Há um reservatório de água limpa (r1),
+um de água suja (r2) e o bebedouro, ligados por 3 bombas e monitorados por boias de nível,
+sensores de TDS e pH e um sensor ultrassônico de presença. O ESP32 lê tudo, decide e comanda as bombas.
+
+- Circulação: com o gato presente por 5 s, a bomba3 circula a água do bebedouro até ele sair.
+- Reposição: se o nível do bebedouro cai ao mínimo, a bomba1 repõe água limpa de r1 até o máximo.
+- Qualidade: com a água parada (sem gato, bombas desligadas), o ESP mede TDS e pH de forma alternada.
+  Se TDS ou pH ficarem fora do limite por tempo suficiente, uma troca de água é pedida.
+- Troca de água (variável ESTADO_TROCA): NORMAL -> AGUARDANDO -> DESCARTANDO -> REABASTECENDO -> NORMAL.
+  A bomba2 manda a água suja do bebedouro para r2 (só com o gato ausente), depois a bomba1 enche de novo.
+  Depois da troca, a medição de qualidade fica bloqueada por 60 s, para a água estabilizar.
+- Avisos para o usuário: r1 baixo e r2 cheio são avisados por LED amarelo e buzzer.
+- Segurança: se uma bomba ficar ligada por tempo demais, todas desligam e o sistema entra em FALHA
+  (só sai reiniciando o ESP).
+- A placa 3 mostra o estado com 11 LEDs (5 pares verde/amarelo + 1 vermelho), buzzer e display de 7 segmentos.
+  O ESP calcula tudo e envia pela UART. O painel web mostra as mesmas informações.
+- O sensor de turbidez NÃO é mais usado. A decisão de troca usa apenas TDS e pH.
+
+OBS: os valores de limites e tempos citados abaixo estão reunidos na tabela PARÂMETROS e são valores
+iniciais, que podem ser ajustados nos testes.
+
+
+======================================================================
+>TABELA: COMPONENTES E CÓDIGOS
+======================================================================
+
+COMPONENTE:
+Recipiente de água limpa, que atua como reservatório do bebedouro
+CÓDIGO: r1
+
+======================================================================
+
+COMPONENTE:
+Recipiente de água suja, que atua como destino e reservatório da água de descarte do bebedouro
+CÓDIGO: r2
+
+======================================================================
+
+COMPONENTE:
+Bebedouro onde o gato efetivamente bebe água
+CÓDIGO: bebedouro
+
+======================================================================
+
+COMPONENTE:
+Bomba de água do r1 que manda água limpa pro bebedouro
+CÓDIGO: bomba1
+
+======================================================================
+
+COMPONENTE:
+Bomba de água do bebedouro que manda água suja pra r2
+CÓDIGO: bomba2
+
+======================================================================
+
+COMPONENTE:
+Bomba de água do bebedouro que fica circulando a água
+CÓDIGO: bomba3
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível de água do r1 (mínimo)
+CÓDIGO: snivel1
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível de água do r2 (máximo)
+CÓDIGO: snivel2
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível máximo de água do bebedouro
+CÓDIGO: snivel3max
+
+======================================================================
+
+COMPONENTE:
+Sensor de nível mínimo de água do bebedouro
+CÓDIGO: snivel3min
+
+======================================================================
+
+COMPONENTE:
+Sensor de presença para detectar presença do gato em frente ao bebedouro
+CÓDIGO: sprox
+
+======================================================================
+
+COMPONENTE:
+Sensor de TDS que fica na parte de baixo do bebedouro
+CÓDIGO: stds
+
+======================================================================
+
+COMPONENTE:
+Sensor de pH que fica no bebedouro
+CÓDIGO: sph
+
+======================================================================
+
+COMPONENTE:
+Buzzer ativo para efeito sonoro de alerta
+CÓDIGO: buz
+
+======================================================================
+
+COMPONENTE:
+Display de 7 segmentos para exibir informações (com botão para alternar a informação exibida)
+CÓDIGO: display
+
+======================================================================
+
+COMPONENTE:
+LED vermelho de aviso (troca de água pendente/em andamento; pisca em caso de falha)
+CÓDIGO: ledr
+
+======================================================================
+
+COMPONENTE:
+LED verde 1 de aviso (par 1: água limpa, r1)
+CÓDIGO: ledg1
+
+======================================================================
+
+COMPONENTE:
+LED verde 2 de aviso (par 2: água suja, r2)
+CÓDIGO: ledg2
+
+======================================================================
+
+COMPONENTE:
+LED verde 3 de aviso (par 3: TDS)
+CÓDIGO: ledg3
+
+======================================================================
+
+COMPONENTE:
+LED verde 4 de aviso (par 4: pH)
+CÓDIGO: ledg4
+
+======================================================================
+
+COMPONENTE:
+LED verde 5 de aviso (par 5: nível do bebedouro)
+CÓDIGO: ledg5
+
+======================================================================
+
+COMPONENTE:
+LED amarelo 1 de aviso (par 1: água limpa, r1)
+CÓDIGO: ledy1
+
+======================================================================
+
+COMPONENTE:
+LED amarelo 2 de aviso (par 2: água suja, r2)
+CÓDIGO: ledy2
+
+======================================================================
+
+COMPONENTE:
+LED amarelo 3 de aviso (par 3: TDS)
+CÓDIGO: ledy3
+
+======================================================================
+
+COMPONENTE:
+LED amarelo 4 de aviso (par 4: pH)
+CÓDIGO: ledy4
+
+======================================================================
+
+COMPONENTE:
+LED amarelo 5 de aviso (par 5: nível do bebedouro)
+CÓDIGO: ledy5
+
+======================================================================
+
+
+============================================================
+>TABELA: CONVENÇÕES DOS SENSORES DE NÍVEL
+============================================================
+
+- Boias de mínimo (snivel1 e snivel3min): ficam com a parte móvel virada para cima. Quando a água está
+  acima do mínimo, a boia sobe e o contato fica aberto. Quando a água chega ao mínimo, a parte móvel
+  desce, fecha o contato e envia sinal.
+- Boias de máximo (snivel2 e snivel3max): ficam com a parte móvel virada para baixo. Enquanto a água não
+  chegou ao máximo, o contato fica aberto. Quando a água chega ao máximo, a parte móvel sobe, fecha o
+  contato e envia sinal.
+- Portanto, em TODAS as boias: SINAL PRESENTE = a condição descrita está ocorrendo.
+- Nas condições abaixo:
+  [Água X <= sniveln] = boia de mínimo com sinal (água no mínimo ou abaixo)
+  [Água X > sniveln]  = boia de mínimo sem sinal
+  [Água X >= sniveln] = boia de máximo com sinal (água no máximo ou acima)
+  [Água X < sniveln]  = boia de máximo sem sinal
+- Como cada boia só diz "atingiu" ou "não atingiu", a comparação "<= snivel3max" não é testada (seria sempre verdadeira).
+
+
+============================================================
+>TABELA: VARIÁVEL "ESTADO_TROCA"
+============================================================
+
+NORMAL
+-----------------------------------------------
+EXPLICAÇÃO
+Não há troca de água solicitada.
+
+============================================================
+
+AGUARDANDO
+-----------------------------------------------
+EXPLICAÇÃO
+A água foi considerada ruim (TDS ou pH fora do limite), mas o descarte ainda não começou.
+
+============================================================
+
+DESCARTANDO
+-----------------------------------------------
+EXPLICAÇÃO
+A bomba2 está retirando água do bebedouro (ou o descarte está pausado porque r2 encheu).
+
+============================================================
+
+REABASTECENDO
+-----------------------------------------------
+EXPLICAÇÃO
+O descarte terminou e a bomba1 está repondo água limpa.
+
+============================================================
+
+
+============================================================
+>TABELA: OUTRAS VARIÁVEIS DO ESP
+============================================================
+
+FALHA
+-----------------------------------------------
+Verdadeiro quando alguma bomba passou do tempo máximo ligada (C9). Só volta a falso reiniciando o ESP.
+
+============================================================
+
+LEITURA_PERMITIDA
+-----------------------------------------------
+Verdadeiro quando TODAS estas condições ocorrem ao mesmo tempo:
+- [Água bebedouro > snivel3min] (sensores de TDS e pH submersos)
+- [BLOQUEIO_POS_TROCA = False]
+- [sprox = 0] (gato ausente)
+- [bomba1 = OFF] & [bomba2 = OFF] & [bomba3 = OFF] por pelo menos 10 s
+Com a água agitada (gato bebendo, bomba ligada), a leitura sai errada, por isso só se mede com a água parada.
+
+============================================================
+
+BLOQUEIO_POS_TROCA
+-----------------------------------------------
+Fica verdadeiro por 60 s logo depois que a troca termina (C8). Nesse período não há medição nem pedido de
+nova troca, pois a água acabou de ser reposta e o sensor de pH precisa de cerca de 60 s para estabilizar.
+Sem isso o sistema poderia ler um valor ainda instável e iniciar outra troca em loop.
+
+============================================================
+
+TDS e pH (valores medidos)
+-----------------------------------------------
+Cada medição é a média de 20 leituras, descartando as 4 menores e as 4 maiores (reduz ruído).
+Valem "sem leitura" quando o bebedouro está no mínimo, quando a troca termina (C8) ou antes da primeira medição.
+
+============================================================
+
+
+============================================================
+>TABELA: PARÂMETROS (VALORES INICIAIS AJUSTÁVEIS)
+============================================================
+
+LIMITE_TDS ............................ 120 ppm
+PH_MIN / PH_MAX ....................... 6,0 / 8,5
+TEMPO_CONFIRMACAO (qualidade ruim) .... 15 s
+TEMPO_ESTABILIZACAO (pós-troca) ....... 60 s
+Bombas desligadas antes de medir ...... 10 s
+Intervalo entre medições .............. 2 s (alterna TDS e pH, cada um é medido a cada 4 s)
+Presença para circular (C5) ........... 5 s
+Ausência para parar circulação (C5) ... 5 s
+Ausência para descartar (C6) .......... 6 s
+Distância que conta como presença ..... menos de 30 cm
+T1 (bomba1 ligada, máx.) .............. 120 s
+T2 (bomba2 ligada, máx.) .............. 120 s
+T3 (bomba3 ligada, máx.) .............. 300 s
+Repetição do alerta sonoro ............ 60 s (0 = toca uma única vez)
+Intervalo mínimo entre sinais sonoros . 3 s
+
+OBS: TDS, pH e T1/T2/T3 precisam ser conferidos e calibrados nos testes com água real.
+
+
+============================================================
+>TABELA: LÓGICA DO ESP
+============================================================
+
+C1: Alertar nível baixo em r1
+-----------------------------------------------
+ONDE?
+r1
+-----------------------------------------------
+CONDIÇÃO (SE)
+[Água r1 <= snivel1]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar ledy1 e desligar ledg1
+- Sinal sonoro de r1 baixo (C13)
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água r1 > snivel1]
+(ledg1 liga e ledy1 desliga)
+-----------------------------------------------
+COMENTÁRIOS
+O bloqueio da bomba1 é feito pela checagem nas condições que requerem a ativação dessa bomba (C4).
+
+===========================
+C2: Alertar nível alto em r2
+-----------------------------------------------
+ONDE?
+r2
+-----------------------------------------------
+CONDIÇÃO (SE)
+[Água r2 >= snivel2]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar ledy2 e desligar ledg2
+- Sinal sonoro de r2 cheio (C13)
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água r2 < snivel2]
+(ledg2 liga e ledy2 desliga)
+-----------------------------------------------
+COMENTÁRIOS
+-
+
+===========================
+C3: Registrar qualidade de água ruim e necessidade de troca
+-----------------------------------------------
+ONDE?
+bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+[ESTADO_TROCA = "NORMAL"]
+& [LEITURA_PERMITIDA = True]
+& (
+    [Água TDS > LIMITE_TDS]
+    OU [Água pH < PH_MIN]
+    OU [Água pH > PH_MAX]
+  )
+& as condições de qualidade ruim acima se mantêm por pelo menos TEMPO_CONFIRMACAO
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Definir ESTADO_TROCA = "AGUARDANDO"
+- Ligar ledr
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+(se uma medição voltar ao normal antes do TEMPO_CONFIRMACAO, a contagem é zerada)
+-----------------------------------------------
+COMENTÁRIOS
+Utiliza os últimos valores válidos de TDS e pH (C10). O pedido de troca só vale se a qualidade ruim
+se mantiver por TEMPO_CONFIRMACAO, para um pico isolado de leitura não iniciar uma troca.
+A troca ocorrerá quando houver condições adequadas (C6). A leitura não conta se os sensores não
+estiverem submersos (água no mínimo), pois isso invalida a medição.
+
+===========================
+C4: Mandar água de r1 pro bebedouro quando preciso
+-----------------------------------------------
+ONDE?
+r1, bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+{
+([ESTADO_TROCA = "NORMAL"] & [Água bebedouro <= snivel3min])
+OU
+([ESTADO_TROCA = "REABASTECENDO"] & [Água bebedouro < snivel3max])
+}
+& [Água r1 > snivel1]
+& [bomba2 = OFF]
+& [bomba3 = OFF]
+& [FALHA = False]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar a bomba1
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água bebedouro >= snivel3max]
+OU
+[Água r1 <= snivel1]
+-----------------------------------------------
+COMENTÁRIOS
+A condição também considera um reabastecimento no estado NORMAL, para o caso de ter evaporado água ou algo do tipo.
+
+===========================
+C5: Circular água no bebedouro
+-----------------------------------------------
+ONDE?
+bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+[ESTADO_TROCA = "NORMAL"]
+& [Água bebedouro > snivel3min]
+& [sprox = 1 por 5s ou mais]
+& [bomba1 = OFF]
+& [bomba2 = OFF]
+& [FALHA = False]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar a bomba3
+-----------------------------------------------
+PARE/MUDE QUANDO
+[sprox = 0 por pelo menos 5 s]
+OU
+[Água bebedouro <= snivel3min]
+-----------------------------------------------
+COMENTÁRIOS
+Aqui não há condições que verificam a qualidade da água (sinais opostos às condições de C6) pois somente depois do gato sair (terminar de beber) a condição C6 seria permitida. Além disso, a circulação para se por algum motivo anormal a água cair abaixo do min.
+A comparação "[Água bebedouro <= snivel3max]" da versão anterior foi removida, pois a boia só informa se o máximo foi atingido e a comparação seria sempre verdadeira.
+
+===========================
+C6: Mandar água suja do bebedouro pra r2 (estado de descarte)
+-----------------------------------------------
+ONDE?
+r2, bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+([ESTADO_TROCA = "AGUARDANDO"] OU [ESTADO_TROCA = "DESCARTANDO"])
+& [Água bebedouro > snivel3min]
+& [Água r2 < snivel2]
+& [sprox = 0 por 6s ou mais]
+& [bomba1 = OFF]
+& [bomba3 = OFF]
+& [FALHA = False]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Ligar a bomba2
+- Definir ESTADO_TROCA = "DESCARTANDO"
+-----------------------------------------------
+PARE/MUDE QUANDO
+[Água r2 >= snivel2]
+OU
+[Água bebedouro <= snivel3min]
+-----------------------------------------------
+COMENTÁRIOS
+Se r2 encher no meio do descarte, a bomba2 para. Por isso, a condição considera os dois estados, então o descarte retoma sozinho quando r2 for esvaziado.
+
+===========================
+C7: Finalizar descarte de água suja e trocar estado para reabastecendo
+-----------------------------------------------
+ONDE?
+sistema
+-----------------------------------------------
+CONDIÇÃO (SE)
+([ESTADO_TROCA = "DESCARTANDO"] OU [ESTADO_TROCA = "AGUARDANDO"])
+& [Água bebedouro <= snivel3min]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Definir ESTADO_TROCA = "REABASTECENDO"
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+As condições consideram, além do DESCARTANDO, o AGUARDANDO também, pois se a água do bebedouro cair pro min antes de iniciar o descarte o sistema travaria (já que C6 considera [Água bebedouro > snivel3min]).
+
+===========================
+C8: Finalizar reabastecimento de água limpa e voltar ao funcionamento normal
+-----------------------------------------------
+ONDE?
+sistema
+-----------------------------------------------
+CONDIÇÃO (SE)
+[ESTADO_TROCA = "REABASTECENDO"]
+& [Água bebedouro >= snivel3max]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Definir ESTADO_TROCA = "NORMAL"
+- Desligar o ledr
+- Ativar BLOQUEIO_POS_TROCA por 60 s (TEMPO_ESTABILIZACAO)
+- Descartar os valores antigos de TDS e pH (voltam a "sem leitura" até uma nova medição)
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+(o BLOQUEIO_POS_TROCA termina sozinho após 60 s)
+-----------------------------------------------
+COMENTÁRIOS
+Evita que a água recém reposta (agitada, com sensor de pH ainda estabilizando) gere uma nova troca imediata.
+
+===========================
+C9: Proteger contra bomba ligada por tempo demais
+-----------------------------------------------
+ONDE?
+sistema
+-----------------------------------------------
+CONDIÇÃO (SE)
+[bomba1 = ON continuamente por mais que T1]
+OU [bomba2 = ON continuamente por mais que T2]
+OU [bomba3 = ON continuamente por mais que T3]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Desligar bomba1
+- Desligar bomba2
+- Desligar bomba3
+- FALHA = True
+- Piscar o ledr enquanto FALHA = True
+- Sinal sonoro de falha (C13)
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+Para sair da falha, o reinício do ESP já basta, porque a variável fica na memória e volta a falso ao ligar. Não precisa de botão.
+
+===========================
+C10: Medir TDS e pH
+-----------------------------------------------
+ONDE?
+bebedouro
+-----------------------------------------------
+CONDIÇÃO (SE)
+[LEITURA_PERMITIDA = True]
+& [passaram 2 s ou mais desde a última medição]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Medir UM dos sensores por vez, alternando: stds, depois sph, depois stds...
+- Cada medição usa a média de 20 amostras, descartando as 4 menores e as 4 maiores
+- Guardar o valor como o último TDS ou pH válido
+-----------------------------------------------
+PARE/MUDE QUANDO
+[LEITURA_PERMITIDA = False]
+(a medição pausa e mantém o último valor)
+OU
+[Água bebedouro <= snivel3min]
+(TDS e pH passam a "sem leitura")
+-----------------------------------------------
+COMENTÁRIOS
+Os dois sensores na mesma água interferem um no outro (a sonda de TDS injeta corrente e desloca o pH), por isso a medição é alternada e nunca simultânea.
+O pH usa calibração de 2 pontos (pH 7,20 a 2,622 V e pH 6,20 a 2,688 V). O TDS usa a fórmula padrão do módulo TDS Meter V1.0 com temperatura fixa de 25 °C.
+
+===========================
+C11: Indicar qualidade da água nos LEDs (pares 3 e 4)
+-----------------------------------------------
+ONDE?
+placa 3
+-----------------------------------------------
+CONDIÇÃO (SE)
+Par 3 (TDS): existe um valor de TDS válido
+Par 4 (pH): existe um valor de pH válido
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Par 3: [TDS <= LIMITE_TDS] -> ledg3 aceso, ledy3 apagado
+         [TDS > LIMITE_TDS] -> ledy3 aceso, ledg3 apagado
+- Par 4: [PH_MIN <= pH <= PH_MAX] -> ledg4 aceso, ledy4 apagado
+         [pH fora da faixa] -> ledy4 aceso, ledg4 apagado
+-----------------------------------------------
+PARE/MUDE QUANDO
+Sem valor válido (sem leitura): os dois LEDs do par ficam apagados
+-----------------------------------------------
+COMENTÁRIOS
+O LED amarelo indica que o parâmetro está fora do limite, mesmo que ainda não tenha havido o pedido de troca (o pedido só ocorre após TEMPO_CONFIRMACAO, em C3).
+
+===========================
+C12: Indicar nível do bebedouro e estado da troca nos LEDs
+-----------------------------------------------
+ONDE?
+placa 3
+-----------------------------------------------
+CONDIÇÃO (SE)
+Par 5 (bebedouro):
+[Água bebedouro <= snivel3min] OU [ESTADO_TROCA = "REABASTECENDO"]
+LED vermelho:
+[ESTADO_TROCA diferente de "NORMAL"] OU [FALHA = True]
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Par 5: com a condição verdadeira, ledy5 aceso e ledg5 apagado; caso contrário, ledg5 aceso e ledy5 apagado
+- ledr aceso fixo na troca pendente ou em andamento
+- ledr piscando (500 ms) se FALHA = True
+-----------------------------------------------
+PARE/MUDE QUANDO
+As condições deixam de valer (ESTADO_TROCA = "NORMAL" apaga o ledr)
+-----------------------------------------------
+COMENTÁRIOS
+-
+
+===========================
+C13: Alertas sonoros (buzzer)
+-----------------------------------------------
+ONDE?
+placa 3
+-----------------------------------------------
+CONDIÇÃO (SE)
+[FALHA = True]               -> sinal de FALHA
+[Água r2 >= snivel2]         -> sinal de r2 CHEIO
+[Água r1 <= snivel1]         -> sinal de r1 BAIXO
+(prioridade se mais de um ocorrer ao mesmo tempo: FALHA, depois r2 cheio, depois r1 baixo)
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- FALHA ............ 1 beep longo (cerca de 1 s)
+- r2 CHEIO ......... 3 beeps curtos
+- r1 BAIXO ......... 2 beeps curtos
+- Cada sinal toca quando a situação começa e se repete a cada 60 s enquanto durar (0 = não repete)
+- Entre dois sinais seguidos há um intervalo mínimo de 3 s
+-----------------------------------------------
+PARE/MUDE QUANDO
+A situação deixa de ocorrer (o próximo aparecimento volta a tocar o sinal)
+-----------------------------------------------
+COMENTÁRIOS
+A troca de água não emite som (apenas o ledr acende), para não assustar o gato nem o usuário.
+
+===========================
+C14: Exibir informações no display
+-----------------------------------------------
+ONDE?
+placa 3
+-----------------------------------------------
+CONDIÇÃO (SE)
+O botão da placa 3 alterna a informação exibida, em ciclo:
+1) TDS (ppm, número inteiro)
+2) pH (duas casas decimais)
+3) Estado da troca: n = NORMAL, A = AGUARDANDO, d = DESCARTANDO, r = REABASTECENDO, F = FALHA
+-----------------------------------------------
+AÇÕES (ENTÃO)
+- Exibir "----" quando TDS ou pH estiverem "sem leitura"
+-----------------------------------------------
+PARE/MUDE QUANDO
+-
+-----------------------------------------------
+COMENTÁRIOS
+O display NÃO alterna sozinho. O botão fica na placa 3 (controlada pelo microcontrolador MSP430), e o ESP envia sempre os 3 valores.
+No painel web existe um botão que simula esse comportamento.
+
+
+============================================================
+>COMUNICAÇÃO ESP -> PLACA 3 (UART)
+============================================================
+
+O ESP não aciona os LEDs, o buzzer e o display diretamente. Ele envia o estado pela UART (GPIO17 = TX e GPIO16 = RX
+no ESP32, 9600 baud), e a placa 3 (MSP430) acende os LEDs, toca o buzzer e atualiza o display.
+Hoje a UART é uma PROPOSTA, a ser confirmada com o responsável pela placa 3.
+
+Uma linha de texto a cada 500 ms, no formato:
+$B,<11 LEDs>,<padrão do buzzer>,<contador do buzzer>,<TDS>,<pH x100>,<estado>,<falha>
+
+- 11 LEDs: dígitos 0 ou 1, na ordem ledr, ledg1 a ledg5, ledy1 a ledy5
+- padrão do buzzer: 1 = beep longo (falha), 2 = dois beeps (r1 baixo), 3 = três beeps (r2 cheio)
+- contador do buzzer: aumenta a cada novo sinal; a placa 3 toca o padrão sempre que o contador muda
+- TDS: ppm inteiro (-1 = sem leitura)
+- pH x100: por exemplo 712 = pH 7,12 (-1 = sem leitura)
+- estado: 0 = NORMAL, 1 = AGUARDANDO, 2 = DESCARTANDO, 3 = REABASTECENDO
+- falha: 0 ou 1
+Exemplo: $B,10101010101,0,0,85,712,0,0
+
+
+============================================================
+>O QUE MUDOU EM RELAÇÃO À VERSÃO ANTERIOR
+============================================================
+
+- Turbidez removida. O pH foi incluído no critério de troca (C3).
+- LEDs: de 3 LEDs (led1, led2, led3) para 11 (ledr, ledg1-5, ledy1-5), com função definida por software.
+  led1 e led2 passaram a ser o par 1 e o par 2 (C1 e C2); led3 passou a ser o ledr (C3, C8 e C9).
+- Incluídos o buzzer e o display (C13 e C14), antes inexistentes.
+- C3: novas condições (medição permitida, confirmação por 15 s). Medição criada como C10.
+- C5: removida a comparação "<= snivel3max".
+- C8: novo bloqueio pós-troca (60 s) e descarte dos valores antigos de TDS e pH.
+- C9: a falha agora usa ledr e buzzer, em vez de led1 e led2.
+- Boias: sinal presente = condição ocorrendo em todas (mínimo atingido ou máximo atingido). A antiga observação
+  de "ausência de sinal = máximo" deixou de valer, porque as boias de máximo ficam viradas para baixo.
+- Novas variáveis: LEITURA_PERMITIDA e BLOQUEIO_POS_TROCA.
