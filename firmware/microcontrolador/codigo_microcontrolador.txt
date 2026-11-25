@@ -1,0 +1,1060 @@
+/*
+ * =====================================================================
+ *  PLACA 3 - INTERFACE DO BEBEDOURO AUTOMATICO PARA GATOS
+ *  Microcontrolador: MSP430G2553 (LaunchPad MSP-EXP430G2ET)
+ *  Compilador: TI (Code Composer Studio), tambem compila no IAR e no
+ *              msp430-gcc.
+ * =====================================================================
+ *
+ *  O QUE ESTE PROGRAMA FAZ
+ *  -----------------------
+ *  1. Recebe da Placa 2 (ESP32), pela UART, as medidas e estados:
+ *     pH, TDS, turbidez, nivel do reservatorio limpo, nivel do
+ *     reservatorio sujo, estado da troca de agua e visitas do gato.
+ *  2. Avalia cada medida contra os limites (secao LIMITES) e acende o
+ *     LED verde (normal) ou vermelho (critico) de cada par. Sem dado,
+ *     o par fica apagado.
+ *  3. Mostra no display TM1637 a grandeza escolhida pelo BOTAO (SW1):
+ *     visitas, pH, TDS ou turbidez.
+ *  4. Toca o buzzer (rajadas de bipes curtos, pausa, repete) quando
+ *     alguma grandeza entra na zona critica, ate alguem apertar
+ *     SILENCIAR (SW2). Uma NOVA condicao critica volta a tocar.
+ *  5. Conta as visitas do dia e zera a cada 24 h (ou por comando).
+ *  6. Detecta perda de comunicacao com a Placa 2: apaga os LEDs,
+ *     mostra "Erro" e da um bipe de aviso de tempos em tempos.
+ *  7. Envia para a Placa 2 um "sinal de vida" com o estado da Placa 3
+ *     e avisa quando SILENCIAR ou o zeramento de visitas acontecem.
+ *
+ *  PROTOCOLO UART (9600 bps, 8N1, texto ASCII, estilo NMEA)
+ *  ---------------------------------------------------------
+ *  Formato:  $<TIPO>[,campo1,campo2,...]*<CS>\r\n
+ *  <CS> = XOR de todos os caracteres ENTRE '$' e '*', em 2 digitos
+ *         hexadecimais (ex.: *4F). O "\r" e opcional.
+ *  Campo vazio ou "-" = sem dado (sensor ausente ou com falha).
+ *
+ *  ESP32 -> MSP430
+ *    $D,ph,tds,turb,nl,ns,troca,visitas*CS   (enviar a cada ~1 s)
+ *       ph      : pH x 10, inteiro            (ex.: 72 = pH 7,2)
+ *       tds     : TDS em ppm (mg/L), inteiro
+ *       turb    : turbidez em NTU x 10       (ex.: 35 = 3,5 NTU)
+ *       nl      : reservatorio LIMPO  0 = ok, 1 = nivel baixo (critico)
+ *       ns      : reservatorio SUJO   0 = ok, 1 = nivel alto (critico)
+ *       troca   : 0 = nenhuma, 1 = pendente, 2 = em andamento
+ *       visitas : OPCIONAL. Se vier preenchido, o ESP32 passa a ser o
+ *                 "dono" da contagem e o MSP so mostra o valor.
+ *       Campos no fim podem ser omitidos (contam como sem dado).
+ *    $V*CS     nova visita do gato (o MSP soma 1 na contagem do dia)
+ *    $R*CS     zera a contagem de visitas (ex.: virada do dia)
+ *
+ *  MSP430 -> ESP32
+ *    $S,alarme,silenciado,visitas,com*CS     (a cada 2 s)
+ *       alarme     : 1 = ha condicao critica, 0 = nao
+ *       silenciado : 1 = alarme sonoro silenciado pelo usuario
+ *       visitas    : contagem atual
+ *       com        : 0 = aguardando, 1 = ok, 2 = comunicacao perdida
+ *    $K*CS     o usuario apertou SILENCIAR
+ *    $Z*CS     o usuario zerou as visitas (BOTAO segurado 3 s)
+ *
+ *  MAPA DE PINOS (conforme o esquematico da Placa 3)
+ *  -------------------------------------------------
+ *  P1.0 BUZZER (via Q1)          P2.0 LED_TURB   (D13 vd / D14 vm)
+ *  P1.1 UART RX (UCA0RXD)        P2.1 LED_NIVEL_LIMPO (D5 vd / D6 vm)
+ *  P1.2 UART TX (UCA0TXD)        P2.2 LED_NIVEL_SUJO  (D7 vd / D8 vm)
+ *  P1.3 BOTAO   (SW1)            P2.3 TM_CLK  (via Q2, INVERTIDO)
+ *  P1.4 LED_PH  (D1 vd / D2 vm)  P2.4 TM_DIO  (via Q3, INVERTIDO)
+ *  P1.5 LED_TDS (D3 vd / D4 vm)  P2.5 LED_TROCA (D9 amarelo)
+ *  P1.6 livre                    P2.6, P2.7 livres
+ *  P1.7 SILENCIAR (SW2)
+ *
+ *  Par de LEDs (um pino, dois LEDs):
+ *    pino em ALTO  -> verde aceso   (normal)
+ *    pino em BAIXO -> vermelho aceso (critico)
+ *    pino ENTRADA  -> os dois apagados (sem dado)
+ *
+ *  JUMPERS DA LAUNCHPAD NA OPERACAO: retire 3V3, RXD e TXD do J101.
+ * =====================================================================
+ */
+
+#include <msp430.h>
+#include <stdint.h>
+
+/* =====================================================================
+ *  CONFIGURACAO (ajuste aqui, sem mexer no resto do codigo)
+ * ===================================================================== */
+
+/* --- Comunicacao --- */
+#define TIMEOUT_COM_MS        10000UL /* sem quadro D valido = perda    */
+#define CHECKSUM_OBRIGATORIO  1       /* 0 aceita quadro sem *CS (teste)*/
+#define HEARTBEAT_MS          2000UL  /* periodo do $S para o ESP32     */
+
+/* --- Visitas --- */
+#define DIA_MS                86400000UL /* 24 h                         */
+#define VISITAS_MAX           9999
+
+/* --- Display --- */
+#define BRILHO_DISPLAY        4       /* 0 (fraco) a 7 (forte)          */
+#define TEMPO_ROTULO_MS       1200UL  /* nome da grandeza ao trocar      */
+#define PULAR_PARA_ALARME     1       /* 1 = mostra a grandeza critica  */
+#define AUTO_RETORNO_MS       0UL     /* volta para visitas apos X ms
+                                         sem tocar no botao; 0 = nunca  */
+
+/* --- Botoes --- */
+#define DEBOUNCE_MS           20
+#define TEMPO_LONGO_MS        3000UL  /* BOTAO segurado = zera visitas  */
+
+/* --- Buzzer --- */
+#define BIP_ON_MS             100UL   /* duracao de cada bipe           */
+#define BIP_OFF_MS            150UL   /* intervalo entre bipes          */
+#define RAJADA_MS             3000UL  /* tempo bipando                  */
+#define PAUSA_MS              10000UL /* silencio entre rajadas         */
+#define BIP_TECLA_MS          30UL    /* clique ao apertar botao; 0=off */
+#define BIP_COM_PERDIDA_MS    60000UL /* aviso de perda de com.; 0=off  */
+#define BIP_COM_DURACAO_MS    400UL
+
+/* --- LIMITES (referencia: Portaria GM/MS 888/2021, agua potavel) ---
+ *  pH recomendado 6,0 a 9,0; SDT ate 500 mg/L; turbidez ate 5 uT.
+ *  HIST = histerese: para VOLTAR ao normal o valor precisa entrar
+ *  na faixa com essa folga. Evita o LED piscar e o alarme disparar
+ *  varias vezes quando o valor fica oscilando em cima do limite.     */
+#define PH_MIN_X10            60      /* 6,0 */
+#define PH_MAX_X10            90      /* 9,0 */
+#define PH_HIST_X10           2       /* 0,2 */
+#define TDS_MAX_PPM           500
+#define TDS_HIST_PPM          20
+#define TURB_MAX_X10          50      /* 5,0 NTU */
+#define TURB_HIST_X10         5       /* 0,5 NTU */
+
+/* =====================================================================
+ *  PINOS
+ * ===================================================================== */
+#define BUZZER      BIT0    /* P1 */
+#define UART_RXD    BIT1    /* P1 */
+#define UART_TXD    BIT2    /* P1 */
+#define BTN_SEL     BIT3    /* P1 - BOTAO (SW1) */
+#define LED_PH      BIT4    /* P1 */
+#define LED_TDS     BIT5    /* P1 */
+#define P1_LIVRES   BIT6
+#define BTN_SIL     BIT7    /* P1 - SILENCIAR (SW2) */
+
+#define LED_TURB    BIT0    /* P2 */
+#define LED_NL      BIT1    /* P2 */
+#define LED_NS      BIT2    /* P2 */
+#define TM_CLK      BIT3    /* P2 */
+#define TM_DIO      BIT4    /* P2 */
+#define LED_TROCA   BIT5    /* P2 */
+#define P2_LIVRES   (BIT6 | BIT7)
+
+/* =====================================================================
+ *  TIPOS E ESTADO
+ * ===================================================================== */
+enum { SEM_DADO = 0, NORMAL = 1, CRITICO = 2 };
+enum { COM_AGUARDANDO = 0, COM_OK = 1, COM_PERDIDA = 2 };
+enum { PG_VISITAS = 0, PG_PH, PG_TDS, PG_TURB, NUM_PAGINAS };
+
+/* Bits de alarme */
+#define ALM_PH    0x01
+#define ALM_TDS   0x02
+#define ALM_TURB  0x04
+#define ALM_NL    0x08
+#define ALM_NS    0x10
+
+typedef struct {
+    uint8_t  tem;     /* 1 = ha valor valido                          */
+    int32_t  v;       /* valor                                        */
+    uint8_t  est;     /* SEM_DADO / NORMAL / CRITICO                  */
+} Medida;
+
+typedef struct {
+    volatile unsigned char *dir;
+    volatile unsigned char *out;
+    volatile unsigned char *ren;
+    unsigned char bit;
+} ParLed;
+
+static Medida   m_ph, m_tds, m_turb, m_nl, m_ns;
+static uint8_t  troca = 0xFF;            /* 0xFF = sem dado            */
+static uint16_t visitas = 0;
+static uint8_t  visitas_do_esp = 0;      /* ESP32 e o dono da contagem */
+static uint32_t inicio_dia_ms = 0;
+
+static uint8_t  com_estado = COM_AGUARDANDO;
+static uint32_t ultimo_quadro_ms = 0;
+static uint16_t erros_quadro = 0;
+
+static uint8_t  criticos = 0;            /* bits ALM_ criticos agora   */
+static uint8_t  reconhecidos = 0;        /* bits ja silenciados        */
+static uint8_t  com_bip_silenciado = 0;
+static uint32_t alarme_inicio_ms = 0;
+static uint8_t  alarme_sonoro_ant = 0;
+
+static uint8_t  pagina = PG_VISITAS;
+static uint32_t rotulo_ate_ms = 0;
+static uint32_t ultima_tecla_ms = 0;
+static uint32_t clique_ate_ms = 0;
+static uint32_t com_bip_prox_ms = 0;
+static uint32_t com_bip_ate_ms = 0;
+
+/* =====================================================================
+ *  TEMPO (Timer_A gera 1 interrupcao por milissegundo)
+ * ===================================================================== */
+static volatile uint32_t g_ms = 0;
+
+static uint32_t agora(void)
+{
+    uint32_t t;
+    __disable_interrupt();
+    t = g_ms;
+    __enable_interrupt();
+    return t;
+}
+
+/* Espera bloqueante (so usada no teste de partida), alimenta o WDT */
+static void espera_ms(uint32_t t)
+{
+    uint32_t t0 = agora();
+    while ((agora() - t0) < t) {
+        WDTCTL = WDT_ARST_1000;
+    }
+}
+
+/* =====================================================================
+ *  BOTOES (lidos na interrupcao de 1 ms, com debounce)
+ * ===================================================================== */
+#define EV_SEL_CURTO  0x01
+#define EV_SEL_LONGO  0x02
+#define EV_SIL        0x04
+static volatile uint8_t g_eventos = 0;
+
+typedef struct {
+    uint8_t  estavel;     /* 1 = apertado */
+    uint8_t  contador;
+    uint32_t apertou_ms;
+    uint8_t  longo_feito;
+} Botao;
+static Botao b_sel, b_sil;
+
+/* Chamada a cada 1 ms dentro da ISR do timer */
+static void botao_tick(Botao *b, uint8_t lido, uint8_t ev_curto,
+                       uint8_t ev_longo, uint32_t t)
+{
+    if (lido != b->estavel) {
+        if (++b->contador >= DEBOUNCE_MS) {
+            b->estavel = lido;
+            b->contador = 0;
+            if (lido) {                     /* acabou de apertar */
+                b->apertou_ms = t;
+                b->longo_feito = 0;
+                if (ev_longo == 0) g_eventos |= ev_curto; /* SIL: na hora */
+            } else {                        /* acabou de soltar */
+                if (ev_longo && !b->longo_feito) g_eventos |= ev_curto;
+            }
+        }
+    } else {
+        b->contador = 0;
+        if (ev_longo && b->estavel && !b->longo_feito &&
+            (t - b->apertou_ms) >= TEMPO_LONGO_MS) {
+            b->longo_feito = 1;
+            g_eventos |= ev_longo;
+        }
+    }
+}
+
+static uint8_t pega_eventos(void)
+{
+    uint8_t e;
+    __disable_interrupt();
+    e = g_eventos;
+    g_eventos = 0;
+    __enable_interrupt();
+    return e;
+}
+
+/* =====================================================================
+ *  UART (buffers circulares com interrupcao)
+ * ===================================================================== */
+#define RX_TAM  32      /* potencia de 2 */
+#define TX_TAM  32
+static volatile uint8_t rx_buf[RX_TAM];
+static volatile uint8_t rx_ini = 0, rx_fim = 0;
+static volatile uint8_t tx_buf[TX_TAM];
+static volatile uint8_t tx_ini = 0, tx_fim = 0;
+
+static void uart_init(void)
+{
+    P1SEL  |= UART_RXD | UART_TXD;
+    P1SEL2 |= UART_RXD | UART_TXD;
+    UCA0CTL1 |= UCSWRST;
+    UCA0CTL1 |= UCSSEL_2;           /* SMCLK = 8 MHz                   */
+    UCA0BR0 = 52;                   /* 8 MHz / 9600 = 833,33           */
+    UCA0BR1 = 0;                    /* 833,33/16 = 52 e sobra 0,08x16  */
+    UCA0MCTL = UCBRF_1 | UCOS16;    /* = UCBRF 1, sobreamostragem x16  */
+    UCA0CTL1 &= ~UCSWRST;
+    IE2 |= UCA0RXIE;
+}
+
+static int16_t uart_le(void)
+{
+    uint8_t c;
+    if (rx_ini == rx_fim) return -1;
+    c = rx_buf[rx_ini];
+    rx_ini = (uint8_t)((rx_ini + 1) & (RX_TAM - 1));
+    return c;
+}
+
+static void uart_poe(char c)
+{
+    uint8_t prox = (uint8_t)((tx_fim + 1) & (TX_TAM - 1));
+    while (prox == tx_ini) {        /* buffer cheio: espera esvaziar   */
+        WDTCTL = WDT_ARST_1000;
+    }
+    tx_buf[tx_fim] = (uint8_t)c;
+    tx_fim = prox;
+    IE2 |= UCA0TXIE;                /* a ISR envia                     */
+}
+
+/* Monta e envia "$<corpo>*CS\r\n" */
+static const char HEX[] = "0123456789ABCDEF";
+static void envia_quadro(const char *corpo)
+{
+    uint8_t cs = 0;
+    const char *p;
+    uart_poe('$');
+    for (p = corpo; *p; p++) {
+        cs ^= (uint8_t)*p;
+        uart_poe(*p);
+    }
+    uart_poe('*');
+    uart_poe(HEX[cs >> 4]);
+    uart_poe(HEX[cs & 0x0F]);
+    uart_poe('\r');
+    uart_poe('\n');
+}
+
+/* Escreve um inteiro sem sinal em texto; devolve o fim da string */
+static char *poe_num(char *s, uint16_t v)
+{
+    char tmp[6];
+    uint8_t n = 0;
+    do { tmp[n++] = (char)('0' + v % 10); v /= 10; } while (v);
+    while (n) *s++ = tmp[--n];
+    *s = 0;
+    return s;
+}
+
+/* =====================================================================
+ *  INTERPRETACAO DOS QUADROS RECEBIDOS
+ * ===================================================================== */
+#define LINHA_TAM 48
+static char    linha[LINHA_TAM];
+static uint8_t linha_n = 0;
+static uint8_t linha_ativa = 0;
+
+static int8_t hex_val(char c)
+{
+    if (c >= '0' && c <= '9') return (int8_t)(c - '0');
+    if (c >= 'A' && c <= 'F') return (int8_t)(c - 'A' + 10);
+    if (c >= 'a' && c <= 'f') return (int8_t)(c - 'a' + 10);
+    return -1;
+}
+
+/* Le um campo numerico separado por virgula.
+ * Retorna 1 = valor lido, 0 = campo vazio/"-"/ausente, -1 = erro.  */
+static int8_t campo(char **pp, int32_t *v)
+{
+    char *p = *pp;
+    int32_t n = 0;
+    uint8_t dig = 0, neg = 0;
+
+    if (*p == '-' && (p[1] == ',' || p[1] == 0)) {
+        p++;                                    /* "-" = sem dado      */
+    } else {
+        if (*p == '-') { neg = 1; p++; }
+        while (*p >= '0' && *p <= '9') {
+            n = n * 10 + (*p - '0');
+            p++;
+            if (++dig > 6) return -1;           /* numero absurdo      */
+        }
+        if (neg && !dig) return -1;
+    }
+    if (*p == ',') p++;
+    else if (*p != 0) return -1;                /* caractere invalido  */
+    *pp = p;
+    if (!dig) return 0;
+    *v = neg ? -n : n;
+    return 1;
+}
+
+/* Valida o checksum. 'corpo' aponta para o que vem depois do '$'.
+ * Corta a string no '*'. Retorna 1 se o quadro for aceito.          */
+static uint8_t valida_quadro(char *corpo)
+{
+    uint8_t cs = 0;
+    char *p = corpo;
+    int8_t h, l;
+
+    while (*p && *p != '*') { cs ^= (uint8_t)*p; p++; }
+    if (*p != '*') return CHECKSUM_OBRIGATORIO ? 0 : 1;
+    *p = 0;
+    h = hex_val(p[1]);
+    l = hex_val(p[2]);
+    if (h < 0 || l < 0) return 0;
+    return (uint8_t)(((uint8_t)h << 4) | (uint8_t)l) == cs;
+}
+
+/* Avalia uma medida de faixa com histerese */
+static uint8_t avalia_faixa(uint8_t est, int32_t v, int32_t min,
+                            int32_t max, int32_t hist)
+{
+    if (est == CRITICO) {
+        if (v >= min + hist && v <= max - hist) return NORMAL;
+        return CRITICO;
+    }
+    if (v < min || v > max) return CRITICO;
+    return NORMAL;
+}
+
+static void atualiza_medida(Medida *m, int8_t r, int32_t v)
+{
+    m->tem = (r == 1);
+    if (r == 1) m->v = v;
+    else        m->est = SEM_DADO;
+}
+
+static void zera_visitas(void)
+{
+    visitas = 0;
+    inicio_dia_ms = agora();
+}
+
+static void processa_quadro(char *corpo)
+{
+    char *p;
+    int32_t v[7];
+    int8_t  r[7];
+    uint8_t i;
+
+    if (!valida_quadro(corpo)) { erros_quadro++; return; }
+
+    switch (corpo[0]) {
+    case 'D':
+        if (corpo[1] != ',' && corpo[1] != 0) { erros_quadro++; return; }
+        p = corpo + (corpo[1] == ',' ? 2 : 1);
+        /* le tudo antes de aplicar: quadro com erro nao muda nada */
+        for (i = 0; i < 7; i++) {
+            v[i] = 0;
+            r[i] = campo(&p, &v[i]);
+            if (r[i] < 0) { erros_quadro++; return; }
+        }
+        if (*p != 0) { erros_quadro++; return; }   /* campos demais    */
+
+        atualiza_medida(&m_ph,   r[0], v[0]);
+        atualiza_medida(&m_tds,  r[1], v[1]);
+        atualiza_medida(&m_turb, r[2], v[2]);
+        atualiza_medida(&m_nl,   r[3], v[3]);
+        atualiza_medida(&m_ns,   r[4], v[4]);
+
+        if (m_ph.tem)
+            m_ph.est = avalia_faixa(m_ph.est, m_ph.v, PH_MIN_X10,
+                                    PH_MAX_X10, PH_HIST_X10);
+        if (m_tds.tem)
+            m_tds.est = avalia_faixa(m_tds.est, m_tds.v, -100000L,
+                                     TDS_MAX_PPM, TDS_HIST_PPM);
+        if (m_turb.tem)
+            m_turb.est = avalia_faixa(m_turb.est, m_turb.v, -100000L,
+                                      TURB_MAX_X10, TURB_HIST_X10);
+        if (m_nl.tem) m_nl.est = m_nl.v ? CRITICO : NORMAL;
+        if (m_ns.tem) m_ns.est = m_ns.v ? CRITICO : NORMAL;
+
+        troca = (r[5] == 1 && v[5] >= 0 && v[5] <= 2) ? (uint8_t)v[5] : 0xFF;
+
+        if (r[6] == 1 && v[6] >= 0) {
+            visitas_do_esp = 1;
+            visitas = (v[6] > VISITAS_MAX) ? VISITAS_MAX : (uint16_t)v[6];
+        }
+
+        ultimo_quadro_ms = agora();
+        com_estado = COM_OK;
+        com_bip_silenciado = 0;
+        break;
+
+    case 'V':
+        if (!visitas_do_esp && visitas < VISITAS_MAX) visitas++;
+        break;
+
+    case 'R':
+        zera_visitas();
+        break;
+
+    default:
+        erros_quadro++;     /* tipo desconhecido */
+        break;
+    }
+}
+
+/* Junta os bytes recebidos em linhas e entrega cada linha completa */
+static void trata_recepcao(void)
+{
+    int16_t c;
+    while ((c = uart_le()) >= 0) {
+        if (c == '$') {                 /* inicio de quadro (recomeca) */
+            linha_ativa = 1;
+            linha_n = 0;
+        } else if (!linha_ativa) {
+            /* lixo fora de quadro (ex.: mensagens de boot do ESP32) */
+        } else if (c == '\n' || c == '\r') {
+            linha[linha_n] = 0;
+            linha_ativa = 0;
+            if (linha_n) processa_quadro(linha);
+        } else if (linha_n < LINHA_TAM - 1) {
+            linha[linha_n++] = (char)c;
+        } else {
+            linha_ativa = 0;            /* linha longa demais: descarta */
+            erros_quadro++;
+        }
+    }
+}
+
+/* =====================================================================
+ *  LEDS
+ * ===================================================================== */
+static const ParLed par_ph   = { &P1DIR, &P1OUT, &P1REN, LED_PH   };
+static const ParLed par_tds  = { &P1DIR, &P1OUT, &P1REN, LED_TDS  };
+static const ParLed par_turb = { &P2DIR, &P2OUT, &P2REN, LED_TURB };
+static const ParLed par_nl   = { &P2DIR, &P2OUT, &P2REN, LED_NL   };
+static const ParLed par_ns   = { &P2DIR, &P2OUT, &P2REN, LED_NS   };
+
+static void par_led(const ParLed *p, uint8_t est)
+{
+    *p->ren &= ~p->bit;
+    if (est == SEM_DADO) {
+        *p->dir &= ~p->bit;                 /* entrada: os dois apagam */
+    } else {
+        if (est == NORMAL) *p->out |=  p->bit;  /* alto: verde        */
+        else               *p->out &= ~p->bit;  /* baixo: vermelho    */
+        *p->dir |= p->bit;
+    }
+}
+
+static void todos_pares(uint8_t est)
+{
+    par_led(&par_ph, est);
+    par_led(&par_tds, est);
+    par_led(&par_turb, est);
+    par_led(&par_nl, est);
+    par_led(&par_ns, est);
+}
+
+static void led_troca(uint8_t aceso)
+{
+    if (aceso) P2OUT |= LED_TROCA; else P2OUT &= ~LED_TROCA;
+}
+
+static void buzzer(uint8_t ligado)
+{
+    if (ligado) P1OUT |= BUZZER; else P1OUT &= ~BUZZER;
+}
+
+/* =====================================================================
+ *  DISPLAY TM1637
+ *  ATENCAO: CLK e DIO passam por transistores (Q2/Q3) que INVERTEM o
+ *  sinal. Pino do MSP em ALTO = linha do display em BAIXO.
+ * ===================================================================== */
+#define CLK_ALTO()   (P2OUT &= ~TM_CLK)   /* transistor corta: pull-up  */
+#define CLK_BAIXO()  (P2OUT |=  TM_CLK)   /* transistor conduz: GND     */
+#define DIO_ALTO()   (P2OUT &= ~TM_DIO)
+#define DIO_BAIXO()  (P2OUT |=  TM_DIO)   /* transistor conduz: GND     */
+
+#define TM_ATRASO()  __delay_cycles(160)  /* 20 us com SMCLK de 8 MHz   */
+
+/* Segmentos (bit 0 = a ... bit 6 = g, bit 7 = ponto) */
+static const uint8_t SEG_DIG[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
+};
+#define SEG_OFF    0x00
+#define SEG_TRACO  0x40
+#define SEG_PONTO  0x80
+#define SEG_E      0x79
+#define SEG_R      0x50
+#define SEG_O      0x5C
+#define SEG_P      0x73
+#define SEG_H      0x76
+#define SEG_T      0x78
+#define SEG_D      0x5E
+#define SEG_S      0x6D
+#define SEG_U      0x3E
+#define SEG_B      0x7C
+#define SEG_I      0x06
+
+/* Inicio de transmissao: DIO cai com CLK alto */
+static void tm_inicio(void)
+{
+    CLK_ALTO();
+    DIO_ALTO();
+    TM_ATRASO();
+    DIO_BAIXO();
+    TM_ATRASO();
+    CLK_BAIXO();
+    TM_ATRASO();
+}
+
+/* Fim de transmissao: DIO sobe com CLK alto */
+static void tm_fim(void)
+{
+    CLK_BAIXO();
+    DIO_BAIXO();
+    TM_ATRASO();
+    CLK_ALTO();
+    TM_ATRASO();
+    DIO_ALTO();
+    TM_ATRASO();
+}
+
+/* Envia um byte (bit menos significativo primeiro) e gera o pulso do ACK,
+ * sem ler a resposta (o transistor de DIO nao deixa o MSP ler o ACK) */
+static void tm_byte(uint8_t b)
+{
+    uint8_t i;
+    for (i = 0; i < 8; i++) {
+        CLK_BAIXO();
+        if (b & 0x01) DIO_ALTO(); else DIO_BAIXO();
+        TM_ATRASO();
+        CLK_ALTO();
+        TM_ATRASO();
+        b >>= 1;
+    }
+    CLK_BAIXO();
+    DIO_ALTO();
+    TM_ATRASO();
+    CLK_ALTO();
+    TM_ATRASO();
+    CLK_BAIXO();
+    TM_ATRASO();
+}
+
+/* Escreve os 4 digitos (esquerda para a direita) e liga o display */
+static void tm_mostra(const uint8_t s[4])
+{
+    uint8_t i;
+
+    tm_inicio();
+    tm_byte(0x40);                       /* endereco automatico        */
+    tm_fim();
+
+    tm_inicio();
+    tm_byte(0xC0);                       /* comeca no primeiro digito  */
+    for (i = 0; i < 4; i++) tm_byte(s[i]);
+    tm_fim();
+
+    tm_inicio();
+    tm_byte((uint8_t)(0x88 | BRILHO_DISPLAY));
+    tm_fim();
+}
+
+static void seg_tracos(uint8_t s[4])
+{
+    s[0] = s[1] = s[2] = s[3] = SEG_TRACO;
+}
+
+/* Inteiro de 0 a 9999 alinhado a direita (negativo = tracos) */
+static void montar_inteiro(int32_t n, uint8_t s[4])
+{
+    if (n < 0) { seg_tracos(s); return; }
+    if (n > 9999) n = 9999;
+    s[3] = SEG_DIG[n % 10];
+    s[2] = (n >= 10)   ? SEG_DIG[(n / 10) % 10]   : SEG_OFF;
+    s[1] = (n >= 100)  ? SEG_DIG[(n / 100) % 10]  : SEG_OFF;
+    s[0] = (n >= 1000) ? SEG_DIG[(n / 1000) % 10] : SEG_OFF;
+}
+
+/* Valor x10 com uma casa decimal (ex.: 72 aparece como 7.2) */
+static void montar_decimal(int32_t v10, uint8_t s[4])
+{
+    if (v10 < 0) { seg_tracos(s); return; }
+    if (v10 > 999) v10 = 999;
+    s[3] = SEG_DIG[v10 % 10];
+    s[2] = (uint8_t)(SEG_DIG[(v10 / 10) % 10] | SEG_PONTO);
+    s[1] = (v10 >= 100) ? SEG_DIG[(v10 / 100) % 10] : SEG_OFF;
+    s[0] = SEG_OFF;
+}
+
+/* Decide o que o display mostra agora */
+static void monta_display(uint32_t t, uint8_t s[4])
+{
+    if (com_estado == COM_PERDIDA) {                 /* "Erro" */
+        s[0] = SEG_E; s[1] = SEG_R; s[2] = SEG_R; s[3] = SEG_O;
+        return;
+    }
+    if (com_estado == COM_AGUARDANDO) {
+        seg_tracos(s);
+        return;
+    }
+
+    if ((int32_t)(rotulo_ate_ms - t) > 0) {          /* nome da grandeza */
+        switch (pagina) {
+        case PG_VISITAS:
+            s[0] = SEG_U; s[1] = SEG_I; s[2] = SEG_S; s[3] = SEG_OFF; break;
+        case PG_PH:
+            s[0] = SEG_P; s[1] = SEG_H; s[2] = SEG_OFF; s[3] = SEG_OFF; break;
+        case PG_TDS:
+            s[0] = SEG_T; s[1] = SEG_D; s[2] = SEG_S; s[3] = SEG_OFF; break;
+        default:
+            s[0] = SEG_T; s[1] = SEG_U; s[2] = SEG_R; s[3] = SEG_B; break;
+        }
+        return;
+    }
+
+    switch (pagina) {
+    case PG_VISITAS:
+        montar_inteiro(visitas, s);
+        break;
+    case PG_PH:
+        if (m_ph.tem) montar_decimal(m_ph.v, s); else seg_tracos(s);
+        break;
+    case PG_TDS:
+        if (m_tds.tem) montar_inteiro(m_tds.v, s); else seg_tracos(s);
+        break;
+    default:
+        if (m_turb.tem) montar_decimal(m_turb.v, s); else seg_tracos(s);
+        break;
+    }
+}
+
+/* Confere o display a cada 100 ms e so escreve quando mudou
+ * (e a cada 2 s mesmo sem mudanca, para se recuperar de qualquer glitch) */
+static void atualiza_display(uint32_t t)
+{
+    static uint32_t ultima_conf_ms = 0;
+    static uint32_t ultimo_envio_ms = 0;
+    static uint8_t  anterior[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
+    uint8_t s[4];
+    uint8_t i, mudou = 0;
+
+    if ((t - ultima_conf_ms) < 100) return;
+    ultima_conf_ms = t;
+
+    monta_display(t, s);
+    for (i = 0; i < 4; i++) {
+        if (s[i] != anterior[i]) mudou = 1;
+    }
+    if (mudou || (t - ultimo_envio_ms) >= 2000) {
+        for (i = 0; i < 4; i++) anterior[i] = s[i];
+        ultimo_envio_ms = t;
+        tm_mostra(s);
+    }
+}
+
+/* =====================================================================
+ *  ALARMES, BUZZER E LEDS
+ * ===================================================================== */
+
+/* Junta os alarmes criticos do momento em uma mascara de bits */
+static uint8_t calcula_criticos(void)
+{
+    uint8_t c = 0;
+    if (m_ph.est   == CRITICO) c |= ALM_PH;
+    if (m_tds.est  == CRITICO) c |= ALM_TDS;
+    if (m_turb.est == CRITICO) c |= ALM_TURB;
+    if (m_nl.est   == CRITICO) c |= ALM_NL;
+    if (m_ns.est   == CRITICO) c |= ALM_NS;
+    return c;
+}
+
+/* Sem comunicacao: todas as medidas viram "sem dado" (LEDs apagam) */
+static void zera_medidas(void)
+{
+    m_ph.tem = 0;   m_ph.est = SEM_DADO;
+    m_tds.tem = 0;  m_tds.est = SEM_DADO;
+    m_turb.tem = 0; m_turb.est = SEM_DADO;
+    m_nl.tem = 0;   m_nl.est = SEM_DADO;
+    m_ns.tem = 0;   m_ns.est = SEM_DADO;
+    troca = 0xFF;
+}
+
+/* Perda de comunicacao: nenhum quadro D valido por TIMEOUT_COM_MS
+ * (a contagem comeca no ligar, entao o ESP32 tambem tem esse tempo para aparecer) */
+static void verifica_comunicacao(uint32_t t)
+{
+    if (com_estado != COM_PERDIDA && (t - ultimo_quadro_ms) > TIMEOUT_COM_MS) {
+        com_estado = COM_PERDIDA;
+        com_bip_prox_ms = t;          /* primeiro aviso sonoro na hora */
+        zera_medidas();
+    }
+}
+
+/* Atualiza os alarmes pendentes (criticos que ainda nao foram silenciados)
+ * Uma condicao NOVA reinicia a rajada e, se PULAR_PARA_ALARME = 1,
+ * leva o display para a grandeza critica */
+static void atualiza_alarmes(uint32_t t)
+{
+    uint8_t pendentes, novos;
+
+    criticos = calcula_criticos();
+    reconhecidos &= criticos;         /* o que voltou ao normal sai da lista */
+    pendentes = (uint8_t)(criticos & (uint8_t)~reconhecidos);
+    novos = (uint8_t)(pendentes & (uint8_t)~alarme_sonoro_ant);
+
+    if (novos) {
+        alarme_inicio_ms = t;
+#if PULAR_PARA_ALARME
+        if (novos & ALM_PH)        pagina = PG_PH;
+        else if (novos & ALM_TDS)  pagina = PG_TDS;
+        else if (novos & ALM_TURB) pagina = PG_TURB;
+        if (novos & (ALM_PH | ALM_TDS | ALM_TURB)) {
+            rotulo_ate_ms = t + TEMPO_ROTULO_MS;
+            ultima_tecla_ms = t;
+        }
+#endif
+    }
+    alarme_sonoro_ant = pendentes;    /* mascara dos alarmes pendentes no ciclo anterior */
+}
+
+/* Liga e desliga o buzzer: rajadas de bipes, aviso de perda de
+ * comunicacao e clique de tecla */
+static void atualiza_buzzer(uint32_t t)
+{
+    uint8_t liga = 0;
+    uint8_t pendentes = (uint8_t)(criticos & (uint8_t)~reconhecidos);
+
+    if (pendentes) {
+        uint32_t fase = (t - alarme_inicio_ms) % (RAJADA_MS + PAUSA_MS);
+        if (fase < RAJADA_MS && (fase % (BIP_ON_MS + BIP_OFF_MS)) < BIP_ON_MS) {
+            liga = 1;
+        }
+    }
+
+    if (com_estado == COM_PERDIDA && BIP_COM_PERDIDA_MS > 0 && !com_bip_silenciado) {
+        if ((int32_t)(t - com_bip_prox_ms) >= 0) {
+            com_bip_ate_ms = t + BIP_COM_DURACAO_MS;
+            com_bip_prox_ms = t + BIP_COM_PERDIDA_MS;
+        }
+    }
+    if ((int32_t)(com_bip_ate_ms - t) > 0) liga = 1;
+    if ((int32_t)(clique_ate_ms - t) > 0)  liga = 1;
+
+    buzzer(liga);
+}
+
+/* Atualiza os 5 pares e o LED de troca
+ * Troca pendente (1) pisca a cada 500 ms; em andamento (2) fica acesa fixa */
+static void atualiza_leds(uint32_t t)
+{
+    par_led(&par_ph,   m_ph.est);
+    par_led(&par_tds,  m_tds.est);
+    par_led(&par_turb, m_turb.est);
+    par_led(&par_nl,   m_nl.est);
+    par_led(&par_ns,   m_ns.est);
+
+    led_troca((com_estado == COM_OK) &&
+              ((troca == 2) || (troca == 1 && ((t / 500) % 2) == 0)));
+}
+
+/* =====================================================================
+ *  BOTOES, SINAL DE VIDA E TESTE DE PARTIDA
+ * ===================================================================== */
+
+/* Clique curto ao apertar um botao */
+static void clique(uint32_t t)
+{
+#if BIP_TECLA_MS > 0
+    clique_ate_ms = t + BIP_TECLA_MS;
+#else
+    (void)t;
+#endif
+}
+
+/* Trata os apertos de botao que a interrupcao registrou */
+static void trata_botoes(uint32_t t)
+{
+    uint8_t ev = pega_eventos();
+
+    if (ev & EV_SEL_CURTO) {                 /* BOTAO: proxima grandeza */
+        pagina = (uint8_t)((pagina + 1) % NUM_PAGINAS);
+        rotulo_ate_ms = t + TEMPO_ROTULO_MS;
+        ultima_tecla_ms = t;
+        clique(t);
+    }
+    if (ev & EV_SEL_LONGO) {                 /* BOTAO segurado: zera visitas */
+        zera_visitas();
+        envia_quadro("Z");
+        pagina = PG_VISITAS;
+        rotulo_ate_ms = t + TEMPO_ROTULO_MS;
+        ultima_tecla_ms = t;
+        clique(t);
+    }
+    if (ev & EV_SIL) {                       /* SILENCIAR */
+        reconhecidos = criticos;
+        if (com_estado == COM_PERDIDA) com_bip_silenciado = 1;
+        envia_quadro("K");
+        clique(t);
+    }
+
+#if AUTO_RETORNO_MS > 0
+    if (pagina != PG_VISITAS && (t - ultima_tecla_ms) > AUTO_RETORNO_MS) {
+        pagina = PG_VISITAS;
+    }
+#endif
+}
+
+/* Envia "$S,alarme,silenciado,visitas,com*CS" a cada HEARTBEAT_MS */
+static void sinal_de_vida(uint32_t t)
+{
+    static uint32_t ultimo_ms = 0;
+    char buf[24];
+    char *s = buf;
+    uint8_t alarme = (criticos != 0);
+    uint8_t silenciado = alarme && ((criticos & (uint8_t)~reconhecidos) == 0);
+
+    if ((t - ultimo_ms) < HEARTBEAT_MS) return;
+    ultimo_ms = t;
+
+    *s++ = 'S'; *s++ = ',';
+    s = poe_num(s, alarme);       *s++ = ',';
+    s = poe_num(s, silenciado);   *s++ = ',';
+    s = poe_num(s, visitas);      *s++ = ',';
+    s = poe_num(s, com_estado);
+    *s = 0;
+    envia_quadro(buf);
+}
+
+/* Teste de partida: display 8888, pares verdes, pares vermelhos, LED de troca e bipe */
+static void teste_de_partida(void)
+{
+    static const uint8_t oito[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
+
+    tm_mostra(oito);
+    todos_pares(NORMAL);
+    led_troca(1);
+    espera_ms(500);
+    todos_pares(CRITICO);
+    buzzer(1);
+    espera_ms(150);
+    buzzer(0);
+    espera_ms(350);
+    todos_pares(SEM_DADO);
+    led_troca(0);
+}
+
+/* =====================================================================
+ *  INICIALIZACAO
+ * ===================================================================== */
+static void clock_init(void)
+{
+    if (CALBC1_8MHZ == 0xFF) {        /* calibracao de fabrica apagada */
+        while (1) { }
+    }
+    DCOCTL  = 0;
+    BCSCTL1 = CALBC1_8MHZ;
+    DCOCTL  = CALDCO_8MHZ;            /* SMCLK = 8 MHz */
+}
+
+static void pinos_init(void)
+{
+    /* Porta 1: botoes com pull-up, buzzer e P1.6 como saidas em nivel baixo.
+     * Os pinos dos pares (P1.4, P1.5) comecam como entrada = LEDs apagados.
+     * P1.1 e P1.2 sao configurados em uart_init() */
+    P1OUT = BTN_SEL | BTN_SIL;
+    P1REN = BTN_SEL | BTN_SIL;
+    P1DIR = BUZZER | P1_LIVRES;
+
+    /* Porta 2: CLK e DIO em repouso (pino baixo = linha alta, por causa do
+     * transistor), LED de troca apagado. P2.6 e P2.7 ficam como estao
+     * (cristal de 32 kHz da LaunchPad) */
+    P2OUT = 0;
+    P2DIR = TM_CLK | TM_DIO | LED_TROCA;
+}
+
+static void timer_init(void)
+{
+    TA0CCR0  = 1000 - 1;                       /* 8 MHz / 8 = 1 MHz: 1 ms */
+    TA0CCTL0 = CCIE;
+    TA0CTL   = TASSEL_2 | ID_3 | MC_1 | TACLR;
+}
+
+/* =====================================================================
+ *  INTERRUPCOES
+ * ===================================================================== */
+
+/* Timer: 1 ms. Conta o tempo e le os dois botoes (com debounce) */
+#if defined(__TI_COMPILER_VERSION__)
+#pragma vector = TIMER0_A0_VECTOR
+__interrupt void isr_timer(void)
+#else
+void __attribute__((interrupt(TIMER0_A0_VECTOR))) isr_timer(void)
+#endif
+{
+    g_ms++;
+    botao_tick(&b_sel, (P1IN & BTN_SEL) ? 0 : 1, EV_SEL_CURTO, EV_SEL_LONGO, g_ms);
+    botao_tick(&b_sil, (P1IN & BTN_SIL) ? 0 : 1, EV_SIL, 0, g_ms);
+}
+
+/* UART recepcao: guarda o byte no buffer circular */
+#if defined(__TI_COMPILER_VERSION__)
+#pragma vector = USCIAB0RX_VECTOR
+__interrupt void isr_uart_rx(void)
+#else
+void __attribute__((interrupt(USCIAB0RX_VECTOR))) isr_uart_rx(void)
+#endif
+{
+    uint8_t c = UCA0RXBUF;
+    uint8_t prox = (uint8_t)((rx_fim + 1) & (RX_TAM - 1));
+    if (prox != rx_ini) {
+        rx_buf[rx_fim] = c;
+        rx_fim = prox;
+    }
+}
+
+/* UART transmissao: envia o proximo byte do buffer; sem nada a enviar, desliga a interrupcao */
+#if defined(__TI_COMPILER_VERSION__)
+#pragma vector = USCIAB0TX_VECTOR
+__interrupt void isr_uart_tx(void)
+#else
+void __attribute__((interrupt(USCIAB0TX_VECTOR))) isr_uart_tx(void)
+#endif
+{
+    if (IFG2 & UCA0TXIFG) {
+        if (tx_ini != tx_fim) {
+            UCA0TXBUF = tx_buf[tx_ini];
+            tx_ini = (uint8_t)((tx_ini + 1) & (TX_TAM - 1));
+        } else {
+            IE2 &= ~UCA0TXIE;
+        }
+    }
+}
+
+/* =====================================================================
+ *  PROGRAMA PRINCIPAL
+ * ===================================================================== */
+int main(void)
+{
+    uint32_t t;
+
+    WDTCTL = WDT_ARST_1000;           /* watchdog de 1 s, alimentado no laco */
+    clock_init();
+    pinos_init();
+    uart_init();
+    timer_init();
+    __enable_interrupt();
+
+    teste_de_partida();
+
+    t = agora();
+    inicio_dia_ms = t;
+    ultimo_quadro_ms = t;             /* a espera pelo ESP32 conta a partir daqui */
+
+    for (;;) {
+        WDTCTL = WDT_ARST_1000;
+
+        trata_recepcao();
+        t = agora();
+
+        verifica_comunicacao(t);
+        if (!visitas_do_esp && (t - inicio_dia_ms) >= DIA_MS) zera_visitas();
+
+        trata_botoes(t);
+        atualiza_alarmes(t);
+        atualiza_buzzer(t);
+        atualiza_leds(t);
+        atualiza_display(t);
+        sinal_de_vida(t);
+    }
+}
